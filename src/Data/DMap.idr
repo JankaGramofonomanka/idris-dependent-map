@@ -1,4 +1,5 @@
-||| Copied from haskell's dependent-map package
+||| A module describing the dependent map (`DMap`).
+||| Copied from haskell's "dependent-map" package.
 module Data.DMap
 
 import Control.Monad.State
