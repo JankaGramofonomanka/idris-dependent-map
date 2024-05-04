@@ -1,0 +1,4 @@
+[custom.all.dependent-map]
+type = "local"
+path = "."
+ipkg = "dependent-map.ipkg"
