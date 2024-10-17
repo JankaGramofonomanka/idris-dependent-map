@@ -1,0 +1,20 @@
+package dependent-map-test
+
+version = 0.0.1
+
+authors = "Jan Serwatka"
+
+brief = "Test suite for the dependent-map propject"
+
+langversion >= 0.5.1
+
+depends = base >= 0.5.1
+        , dependent-map
+        , contrib
+        , tester
+
+main = Main
+
+executable = test
+
+sourcedir = "src"

@@ -1,5 +1,5 @@
 package dependent-map
--- version =
+version = 0.0.1
 authors = "Jan Serwatka"
 -- maintainers =
 -- license =
@@ -10,10 +10,10 @@ authors = "Jan Serwatka"
 -- bugtracker =
 
 -- the Idris2 version required (e.g. langversion >= 0.5.1)
--- langversion
+langversion >= 0.5.1
 
 -- packages to add to search path
--- depends =
+depends = base >= 0.5.1
 
 -- modules to install
 modules = Data.DMap

@@ -2,3 +2,9 @@
 type = "local"
 path = "."
 ipkg = "dependent-map.ipkg"
+test = "test/dependent-map-test.ipkg"
+
+[custom.all.dependent-map-test]
+type="local"
+path="test"
+ipkg="dependent-map-test.ipkg"
