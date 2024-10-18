@@ -16,7 +16,11 @@ authors = "Jan Serwatka"
 -- depends =
 
 -- modules to install
--- modules =
+modules = Data.DSum
+        , Data.GCompare
+        , Data.GEq
+        , Data.ShowS
+        , Data.Some
 
 -- main file (i.e. file to load at REPL)
 -- main =
