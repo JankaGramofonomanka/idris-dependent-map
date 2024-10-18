@@ -1,16 +1,14 @@
-{-# LANGUAGE BangPatterns #-}
-{-# LANGUAGE DeriveDataTypeable #-}
-{-# LANGUAGE GADTs #-}
-{-# LANGUAGE PolyKinds #-}
-{-# LANGUAGE Safe #-}
-{-# LANGUAGE ScopedTypeVariables #-}
-{-# LANGUAGE TypeOperators #-}
-module Data.Dependent.Map.Internal where
+{- Copied from haskell's dependent-map package -}
+module Data.DMap.Internal
 
-import Data.Dependent.Sum (DSum((:=>)))
-import Data.GADT.Compare (GCompare, GOrdering(..), gcompare)
-import Data.Some (Some, mkSome, withSome)
-import Data.Typeable (Typeable)
+import Control.Monad.State
+import Data.Maybe
+
+import Data.DSum
+import Data.GCompare
+import Data.GEq
+import Data.ShowS
+import Data.Some
 
 -- |Dependent maps: 'k' is a GADT-like thing with a facility for
 -- rediscovering its type parameter, elements of which function as identifiers
@@ -24,15 +22,15 @@ import Data.Typeable (Typeable)
 -- More informally, 'DMap' is to dependent products as 'M.Map' is to @(->)@.
 -- Thus it could also be thought of as a partial (in the sense of \"partial
 -- function\") dependent product.
-data DMap k f where
-    Tip :: DMap k f
-    Bin :: {- sz    -} !Int
-        -> {- key   -} !(k v)
-        -> {- value -} f v
-        -> {- left  -} !(DMap k f)
-        -> {- right -} !(DMap k f)
-        -> DMap k f
-    deriving Typeable
+public export
+data DMap : (k : a -> Type) -> (f : a -> Type) -> Type where
+    Tip : DMap k f
+    Bin : (sz    : Int)
+       -> (key   : k v)
+       -> (value : f v)
+       -> (left  : DMap k f)
+       -> (right : DMap k f)
+       -> DMap k f
 
 {--------------------------------------------------------------------
   Construction
@@ -42,14 +40,16 @@ data DMap k f where
 --
 -- > empty      == fromList []
 -- > size empty == 0
-empty :: DMap k f
+export
+empty : DMap k f
 empty = Tip
 
 -- | /O(1)/. A map with a single element.
 --
 -- > singleton 1 'a'        == fromList [(1, 'a')]
 -- > size (singleton 1 'a') == 1
-singleton :: k v -> f v -> DMap k f
+export
+singleton : {0 v : a} -> k v -> f v -> DMap k f
 singleton k x = Bin 1 k x Tip Tip
 
 {--------------------------------------------------------------------
@@ -57,12 +57,14 @@ singleton k x = Bin 1 k x Tip Tip
 --------------------------------------------------------------------}
 
 -- | /O(1)/. Is the map empty?
-null :: DMap k f -> Bool
-null Tip    = True
-null Bin{}  = False
+export
+null : DMap k f -> Bool
+null Tip              = True
+null (Bin _ _ _ _ _)  = False
 
 -- | /O(1)/. The number of elements in the map.
-size :: DMap k f -> Int
+export
+size : DMap k f -> Int
 size Tip                = 0
 size (Bin n _ _ _ _)    = n
 
@@ -70,28 +72,26 @@ size (Bin n _ _ _ _)    = n
 --
 -- The function will return the corresponding value as @('Just' value)@,
 -- or 'Nothing' if the key isn't in the map.
-lookup :: forall k f v. GCompare k => k v -> DMap k f -> Maybe (f v)
-lookup k = k `seq` go
-    where
-        go :: DMap k f -> Maybe (f v)
-        go Tip = Nothing
-        go (Bin _ kx x l r) =
-            case gcompare k kx of
-                GLT -> go l
-                GGT -> go r
-                GEQ -> Just x
+export
+lookup : (impl : GCompare k) => k v -> DMap k f -> Maybe (f v)
+lookup k Tip = Nothing
+lookup k (Bin _ kx x l r) = case gcompare k kx @{impl} of
+  GLT => lookup k l
+  GGT => lookup k r
+  GEQ => Just x
 
-lookupAssoc :: forall k f v. GCompare k => Some k -> DMap k f -> Maybe (DSum k f)
-lookupAssoc sk = withSome sk $ \k ->
+export
+lookupAssoc : (impl : GCompare k) => Some k -> DMap k f -> Maybe (DSum k f)
+lookupAssoc sk = withSome sk $ \key =>
   let
-    go :: DMap k f -> Maybe (DSum k f)
+    go : DMap k f -> Maybe (DSum k f)
     go Tip = Nothing
     go (Bin _ kx x l r) =
-        case gcompare k kx of
-            GLT -> go l
-            GGT -> go r
-            GEQ -> Just (kx :=> x)
-  in k `seq` go
+        case gcompare key kx @{impl} of
+            GLT => go l
+            GGT => go r
+            GEQ => Just (kx :=> x)
+  in go
 
 {--------------------------------------------------------------------
   Utility functions that maintain the balance properties of the tree.
@@ -125,113 +125,104 @@ lookupAssoc sk = withSome sk $ \k ->
 {--------------------------------------------------------------------
   Combine
 --------------------------------------------------------------------}
-combine :: GCompare k => k v -> f v -> DMap k f -> DMap k f -> DMap k f
+export
+combine : GCompare k => k v -> f v -> DMap k f -> DMap k f -> DMap k f
 combine kx x Tip r  = insertMin kx x r
 combine kx x l Tip  = insertMax kx x l
 combine kx x l@(Bin sizeL ky y ly ry) r@(Bin sizeR kz z lz rz)
-  | delta*sizeL <= sizeR  = balance kz z (combine kx x l lz) rz
-  | delta*sizeR <= sizeL  = balance ky y ly (combine kx x ry r)
-  | otherwise             = bin kx x l r
+  =    if delta*sizeL <= sizeR then balance kz z (combine kx x l lz) rz
+  else if delta*sizeR <= sizeL then balance ky y ly (combine kx x ry r)
+  else                              bin kx x l r
+
 
 
 -- insertMin and insertMax don't perform potentially expensive comparisons.
-insertMax,insertMin :: k v -> f v -> DMap k f -> DMap k f
+export
+insertMax, insertMin : {0 v : a} -> k v -> f v -> DMap k f -> DMap k f
 insertMax kx x t
   = case t of
-      Tip -> singleton kx x
+      Tip => singleton kx x
       Bin _ ky y l r
-          -> balance ky y l (insertMax kx x r)
+          => balance ky y l (insertMax kx x r)
 
 insertMin kx x t
   = case t of
-      Tip -> singleton kx x
+      Tip => singleton kx x
       Bin _ ky y l r
-          -> balance ky y (insertMin kx x l) r
+          => balance ky y (insertMin kx x l) r
 
 {--------------------------------------------------------------------
   [merge l r]: merges two trees.
 --------------------------------------------------------------------}
-merge :: DMap k f -> DMap k f -> DMap k f
+export
+merge : DMap k f -> DMap k f -> DMap k f
 merge Tip r   = r
 merge l Tip   = l
 merge l@(Bin sizeL kx x lx rx) r@(Bin sizeR ky y ly ry)
-  | delta*sizeL <= sizeR = balance ky y (merge l ly) ry
-  | delta*sizeR <= sizeL = balance kx x lx (merge rx r)
-  | otherwise            = glue l r
+  =    if delta*sizeL <= sizeR then balance ky y (merge l ly) ry
+  else if delta*sizeR <= sizeL then balance kx x lx (merge rx r)
+  else                              glue l r
 
 {--------------------------------------------------------------------
   [glue l r]: glues two trees together.
   Assumes that [l] and [r] are already balanced with respect to each other.
 --------------------------------------------------------------------}
-glue :: DMap k f -> DMap k f -> DMap k f
+export
+glue : DMap k f -> DMap k f -> DMap k f
 glue Tip r = r
 glue l Tip = l
-glue l r
-  | size l > size r = case deleteFindMax l of (km :=> m,l') -> balance km m l' r
-  | otherwise       = case deleteFindMin r of (km :=> m,r') -> balance km m l r'
+glue l r =
+  if size l > size r then case deleteFindMax l of (km :=> m, l') => balance km m l' r
+                     else case deleteFindMin r of (km :=> m, r') => balance km m l r'
 
 -- | /O(log n)/. Delete and find the minimal element.
 --
 -- > deleteFindMin (fromList [(5,"a"), (3,"b"), (10,"c")]) == ((3,"b"), fromList[(5,"a"), (10,"c")])
 -- > deleteFindMin                                            Error: can not return the minimal element of an empty map
-
-deleteFindMin :: DMap k f -> (DSum k f, DMap k f)
+export
+deleteFindMin : DMap k f -> (DSum k f, DMap k f)
 deleteFindMin t = case minViewWithKey t of
-      Nothing -> (error "Map.deleteFindMin: can not return the minimal element of an empty map", Tip)
-      Just p -> p
-
--- | A strict pair.
-data (:*:) a b = !a :*: !b
-infixr 1 :*:
-
--- | Convert a strict pair to a pair.
-toPair :: a :*: b -> (a, b)
-toPair (a :*: b) = (a, b)
-{-# INLINE toPair #-}
-
-data Triple' a b c = Triple' !a !b !c
-
--- | Convert a strict triple to a triple.
-toTriple :: Triple' a b c -> (a, b, c)
-toTriple (Triple' a b c) = (a, b, c)
-{-# INLINE toTriple #-}
+  Nothing => (assert_total $ idris_crash "Map.deleteFindMin: can not return the minimal element of an empty map", Tip)
+  Just p => p
 
 -- | /O(log n)/. Retrieves the minimal (key :=> value) entry of the map, and
 -- the map stripped of that element, or 'Nothing' if passed an empty map.
-minViewWithKey :: forall k f . DMap k f -> Maybe (DSum k f, DMap k f)
+export
+minViewWithKey : DMap k f -> Maybe (DSum k f, DMap k f)
 minViewWithKey Tip = Nothing
-minViewWithKey (Bin _ k0 x0 l0 r0) = Just $! toPair $ go k0 x0 l0 r0
+minViewWithKey (Bin _ k0 x0 l0 r0) = Just $ go k0 x0 l0 r0
   where
-    go :: k v -> f v -> DMap k f -> DMap k f -> DSum k f :*: DMap k f
-    go k x Tip r = (k :=> x) :*: r
+    go : {0 k, f : a -> Type} -> k v -> f v -> DMap k f -> DMap k f -> (DSum k f, DMap k f)
+    go k x Tip r = (k :=> x, r)
     go k x (Bin _ kl xl ll lr) r =
-      let !(km :*: l') = go kl xl ll lr
-      in (km :*: balance k x l' r)
+      let (km, l') = go kl xl ll lr
+      in (km, balance k x l' r)
 
 -- | /O(log n)/. Retrieves the maximal (key :=> value) entry of the map, and
 -- the map stripped of that element, or 'Nothing' if passed an empty map.
-maxViewWithKey :: forall k f . DMap k f -> Maybe (DSum k f, DMap k f)
+export
+maxViewWithKey : DMap k f -> Maybe (DSum k f, DMap k f)
 maxViewWithKey Tip = Nothing
-maxViewWithKey (Bin _ k0 x0 l0 r0) = Just $! toPair $ go k0 x0 l0 r0
+maxViewWithKey (Bin _ k0 x0 l0 r0) = Just $ go k0 x0 l0 r0
   where
-    go :: k v -> f v -> DMap k f -> DMap k f -> DSum k f :*: DMap k f
-    go k x l Tip = (k :=> x) :*: l
+    go : k v -> f v -> DMap k f -> DMap k f -> (DSum k f, DMap k f)
+    go k x l Tip = (k :=> x, l)
     go k x l (Bin _ kr xr rl rr) =
-      let !(km :*: r') = go kr xr rl rr
-      in (km :*: balance k x l r')
+      let (km, r') = go kr xr rl rr
+      in (km, balance k x l r')
 
 -- | /O(log n)/. Delete and find the maximal element.
 --
 -- > deleteFindMax (fromList [(5,"a"), (3,"b"), (10,"c")]) == ((10,"c"), fromList [(3,"b"), (5,"a")])
 -- > deleteFindMax empty                                      Error: can not return the maximal element of an empty map
-
-deleteFindMax :: DMap k f -> (DSum k f, DMap k f)
+export
+deleteFindMax : DMap k f -> (DSum k f, DMap k f)
 deleteFindMax t
   = case t of
-      Bin _ k x l Tip -> (k :=> x,l)
-      Bin _ k x l r   -> let (km,r') = deleteFindMax r in (km,balance k x l r')
-      Tip             -> (error "Map.deleteFindMax: can not return the maximal element of an empty map", Tip)
-
+      Bin _ k x l Tip => (k :=> x,l)
+      Bin _ k x l r   => let (km,r') = deleteFindMax r in (km,balance k x l r')
+      --Tip             => (error "Map.deleteFindMax: can not return the maximal element of an empty map", Tip)
+      Tip             => (assert_total $ idris_crash "Map.deleteFindMax: can not return the maximal element of an empty map", Tip)
 
 {--------------------------------------------------------------------
   [balance l x r] balances two trees with value x.
@@ -263,51 +254,60 @@ deleteFindMax t
   he actually proves that this ratio is needed to maintain the
   invariants, his implementation uses an invalid ratio of [1].
 --------------------------------------------------------------------}
-delta,ratio :: Int
+export
+delta, ratio : Int
 delta = 4
 ratio = 2
 
-balance :: k v -> f v -> DMap k f -> DMap k f -> DMap k f
+export
+balance : {0 v : a} -> k v -> f v -> DMap k f -> DMap k f -> DMap k f
 balance k x l r
-  | sizeL + sizeR <= 1    = Bin sizeX k x l r
-  | sizeR >= delta*sizeL  = rotateL k x l r
-  | sizeL >= delta*sizeR  = rotateR k x l r
-  | otherwise             = Bin sizeX k x l r
+  =    if sizeL + sizeR <= 1   then Bin sizeX k x l r
+  else if sizeR >= delta*sizeL then rotateL k x l r
+  else if sizeL >= delta*sizeR then rotateR k x l r
+  else                              Bin sizeX k x l r
+
   where
+    sizeL, sizeR, sizeX : Int
     sizeL = size l
     sizeR = size r
     sizeX = sizeL + sizeR + 1
 
 -- rotate
-rotateL :: k v -> f v -> DMap k f -> DMap k f -> DMap k f
+export
+rotateL : {0 v : a} -> k v -> f v -> DMap k f -> DMap k f -> DMap k f
 rotateL k x l r@(Bin _ _ _ ly ry)
-  | size ly < ratio*size ry = singleL k x l r
-  | otherwise               = doubleL k x l r
-rotateL _ _ _ Tip = error "rotateL Tip"
+  = if size ly < ratio*size ry then singleL k x l r
+                               else doubleL k x l r
+rotateL _ _ _ Tip = assert_total $ idris_crash "error: rotateL Tip"
 
-rotateR :: k v -> f v -> DMap k f -> DMap k f -> DMap k f
+export
+rotateR : {0 v : a} -> k v -> f v -> DMap k f -> DMap k f -> DMap k f
 rotateR k x l@(Bin _ _ _ ly ry) r
-  | size ry < ratio*size ly = singleR k x l r
-  | otherwise               = doubleR k x l r
-rotateR _ _ Tip _ = error "rotateR Tip"
+  = if size ry < ratio*size ly then singleR k x l r
+                               else doubleR k x l r
+rotateR _ _ Tip _ = assert_total $ idris_crash "error: rotateR Tip"
 
 -- basic rotations
-singleL, singleR :: k v -> f v -> DMap k f -> DMap k f -> DMap k f
+export
+singleL, singleR : {0 v : a} -> k v -> f v -> DMap k f -> DMap k f -> DMap k f
 singleL k1 x1 t1 (Bin _ k2 x2 t2 t3)  = bin k2 x2 (bin k1 x1 t1 t2) t3
-singleL _ _ _ Tip = error "singleL Tip"
+singleL _ _ _ Tip = assert_total $ idris_crash "error: singleL Tip"
 singleR k1 x1 (Bin _ k2 x2 t1 t2) t3  = bin k2 x2 t1 (bin k1 x1 t2 t3)
-singleR _ _ Tip _ = error "singleR Tip"
+singleR _ _ Tip _ = assert_total $ idris_crash "error: singleR Tip"
 
-doubleL, doubleR :: k v -> f v -> DMap k f -> DMap k f -> DMap k f
+export
+doubleL, doubleR : {0 v : a} -> k v -> f v -> DMap k f -> DMap k f -> DMap k f
 doubleL k1 x1 t1 (Bin _ k2 x2 (Bin _ k3 x3 t2 t3) t4) = bin k3 x3 (bin k1 x1 t1 t2) (bin k2 x2 t3 t4)
-doubleL _ _ _ _ = error "doubleL"
+doubleL _ _ _ _ = assert_total $ idris_crash "error: doubleL"
 doubleR k1 x1 (Bin _ k2 x2 t1 (Bin _ k3 x3 t2 t3)) t4 = bin k3 x3 (bin k2 x2 t1 t2) (bin k1 x1 t3 t4)
-doubleR _ _ _ _ = error "doubleR"
+doubleR _ _ _ _ = assert_total $ idris_crash "error: doubleR"
 
 {--------------------------------------------------------------------
   The bin constructor maintains the size of the tree
 --------------------------------------------------------------------}
-bin :: k v -> f v -> DMap k f -> DMap k f -> DMap k f
+export
+bin : {0 v : a} -> k v -> f v -> DMap k f -> DMap k f -> DMap k f
 bin k x l r
   = Bin (size l + size r + 1) k x l r
 
@@ -333,44 +333,51 @@ bin k x l r
   values between the range [lo] to [hi]. The returned tree is either
   empty or the key of the root is between @lo@ and @hi@.
 --------------------------------------------------------------------}
-trim :: (Some k -> Ordering) -> (Some k -> Ordering) -> DMap k f -> DMap k f
+export
+trim : (Some k -> Ordering) -> (Some k -> Ordering) -> DMap k f -> DMap k f
 trim _     _     Tip = Tip
 trim cmplo cmphi t@(Bin _ kx _ l r)
-  = case cmplo (mkSome kx) of
-      LT -> case cmphi (mkSome kx) of
-              GT -> t
-              _  -> trim cmplo cmphi l
-      _  -> trim cmplo cmphi r
+  = case cmplo (MkSome kx) of
+      LT => case cmphi (MkSome kx) of
+              GT => t
+              _  => trim cmplo cmphi l
+      _  => trim cmplo cmphi r
 
-trimLookupLo :: GCompare k => Some k -> (Some k -> Ordering) -> DMap k f -> (Maybe (DSum k f), DMap k f)
+export
+trimLookupLo : GCompare k => Some k -> (Some k -> Ordering) -> DMap k f -> (Maybe (DSum k f), DMap k f)
 trimLookupLo _  _     Tip = (Nothing,Tip)
 trimLookupLo lo cmphi t@(Bin _ kx x l r)
-  = case compare lo (mkSome kx) of
-      LT -> case cmphi (mkSome kx) of
-              GT -> (lookupAssoc lo t, t)
-              _  -> trimLookupLo lo cmphi l
-      GT -> trimLookupLo lo cmphi r
-      EQ -> (Just (kx :=> x),trim (compare lo) cmphi r)
+  = case compare lo (MkSome kx) @{viaGCompare} of
+      LT => case cmphi (MkSome kx) of
+              GT => (lookupAssoc lo t, t)
+              _  => trimLookupLo lo cmphi l
+      GT => trimLookupLo lo cmphi r
+      EQ => (Just (kx :=> x), trim (compare lo @{viaGCompare}) cmphi r)
 
 
 {--------------------------------------------------------------------
   [filterGt k t] filter all keys >[k] from tree [t]
   [filterLt k t] filter all keys <[k] from tree [t]
 --------------------------------------------------------------------}
-filterGt :: GCompare k => (Some k -> Ordering) -> DMap k f -> DMap k f
+export
+filterGt : GCompare k => (Some k -> Ordering) -> DMap k f -> DMap k f
 filterGt cmp = go
   where
+    go : DMap k f -> DMap k f
     go Tip              = Tip
-    go (Bin _ kx x l r) = case cmp (mkSome kx) of
-              LT -> combine kx x (go l) r
-              GT -> go r
-              EQ -> r
+    go (Bin _ kx x l r) = case cmp (MkSome kx) of
+              LT => combine kx x (go l) r
+              GT => go r
+              EQ => r
 
-filterLt :: GCompare k => (Some k -> Ordering) -> DMap k f -> DMap k f
+export
+filterLt : GCompare k => (Some k -> Ordering) -> DMap k f -> DMap k f
 filterLt cmp = go
   where
+    go : DMap k f -> DMap k f
     go Tip              = Tip
-    go (Bin _ kx x l r) = case cmp (mkSome kx) of
-          LT -> go l
-          GT -> combine kx x l (go r)
-          EQ -> l
+    go (Bin _ kx x l r) = case cmp (MkSome kx) of
+          LT => go l
+          GT => combine kx x l (go r)
+          EQ => l
+
