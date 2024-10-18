@@ -16,7 +16,8 @@ authors = "Jan Serwatka"
 -- depends =
 
 -- modules to install
-modules = Data.DSum
+modules = Data.DMap
+        , Data.DSum
         , Data.GCompare
         , Data.GEq
         , Data.ShowS
