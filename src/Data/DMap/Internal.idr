@@ -10,18 +10,18 @@ import Data.GEq
 import Data.ShowS
 import Data.Some
 
--- |Dependent maps: 'k' is a GADT-like thing with a facility for
--- rediscovering its type parameter, elements of which function as identifiers
--- tagged with the type of the thing they identify.  Real GADTs are one
--- useful instantiation of @k@, as are 'Tag's from "Data.Unique.Tag" in the
--- 'prim-uniq' package.
---
--- Semantically, @'DMap' k f@ is equivalent to a set of @'DSum' k f@ where no two
--- elements have the same tag.
---
--- More informally, 'DMap' is to dependent products as 'M.Map' is to @(->)@.
--- Thus it could also be thought of as a partial (in the sense of \"partial
--- function\") dependent product.
+||| Dependent maps: 'k' is a GADT-like thing with a facility for
+||| rediscovering its type parameter, elements of which function as identifiers
+||| tagged with the type of the thing they identify.  Real GADTs are one
+||| useful instantiation of `k`, as are 'Tag's from "Data.Unique.Tag" in the
+||| 'prim-uniq' package.
+|||
+||| Semantically, `'DMap' k f` is equivalent to a set of `'DSum' k f` where no two
+||| elements have the same tag.
+|||
+||| More informally, 'DMap' is to dependent products as 'M.Map' is to `(->)`.
+||| Thus it could also be thought of as a partial (in the sense of \"partial
+||| function\") dependent product.
 public export
 data DMap : (k : a -> Type) -> (f : a -> Type) -> Type where
     Tip : DMap k f
@@ -36,18 +36,22 @@ data DMap : (k : a -> Type) -> (f : a -> Type) -> Type where
   Construction
 --------------------------------------------------------------------}
 
--- | /O(1)/. The empty map.
---
--- > empty      == fromList []
--- > size empty == 0
+||| *O(1)*. The empty map.
+|||
+||| ```
+||| empty      == fromList []
+||| size empty == 0
+||| ```
 export
 empty : DMap k f
 empty = Tip
 
--- | /O(1)/. A map with a single element.
---
--- > singleton 1 'a'        == fromList [(1, 'a')]
--- > size (singleton 1 'a') == 1
+||| *O(1)*. A map with a single element.
+|||
+||| ```
+||| singleton 1 'a'        == fromList [(1, 'a')]
+||| size (singleton 1 'a') == 1
+||| ```
 export
 singleton : {0 v : a} -> k v -> f v -> DMap k f
 singleton k x = Bin 1 k x Tip Tip
@@ -56,22 +60,22 @@ singleton k x = Bin 1 k x Tip Tip
   Query
 --------------------------------------------------------------------}
 
--- | /O(1)/. Is the map empty?
+||| *O(1)*. Is the map empty?
 export
 null : DMap k f -> Bool
 null Tip              = True
 null (Bin _ _ _ _ _)  = False
 
--- | /O(1)/. The number of elements in the map.
+||| *O(1)*. The number of elements in the map.
 export
 size : DMap k f -> Int
 size Tip                = 0
 size (Bin n _ _ _ _)    = n
 
--- | /O(log n)/. Lookup the value at a key in the map.
---
--- The function will return the corresponding value as @('Just' value)@,
--- or 'Nothing' if the key isn't in the map.
+||| *O(log n)*. Lookup the value at a key in the map.
+|||
+||| The function will return the corresponding value as `('Just' value)`,
+||| or 'Nothing' if the key isn't in the map.
 export
 lookup : (impl : GCompare k) => k v -> DMap k f -> Maybe (f v)
 lookup k Tip = Nothing
@@ -242,8 +246,8 @@ combine kx x l@(Bin sizeL ky y ly ry) r@(Bin sizeR kz z lz rz)
   else if delta*sizeR <= sizeL then balance ky y ly (combine kx x ry r)
   else                              bin kx x l r
 
--- | /O(log n)/. Retrieves the minimal (key :=> value) entry of the map, and
--- the map stripped of that element, or 'Nothing' if passed an empty map.
+||| *O(log n)*. Retrieves the minimal (key :=> value) entry of the map, and
+||| the map stripped of that element, or 'Nothing' if passed an empty map.
 export
 minViewWithKey : DMap k f -> Maybe (DSum k f, DMap k f)
 minViewWithKey Tip = Nothing
@@ -255,8 +259,8 @@ minViewWithKey (Bin _ k0 x0 l0 r0) = Just $ go k0 x0 l0 r0
       let (km, l') = go kl xl ll lr
       in (km, balance k x l' r)
 
--- | /O(log n)/. Retrieves the maximal (key :=> value) entry of the map, and
--- the map stripped of that element, or 'Nothing' if passed an empty map.
+||| *O(log n)*. Retrieves the maximal (key :=> value) entry of the map, and
+||| the map stripped of that element, or 'Nothing' if passed an empty map.
 export
 maxViewWithKey : DMap k f -> Maybe (DSum k f, DMap k f)
 maxViewWithKey Tip = Nothing
@@ -268,10 +272,12 @@ maxViewWithKey (Bin _ k0 x0 l0 r0) = Just $ go k0 x0 l0 r0
       let (km, r') = go kr xr rl rr
       in (km, balance k x l r')
 
--- | /O(log n)/. Delete and find the maximal element.
---
--- > deleteFindMax (fromList [(5,"a"), (3,"b"), (10,"c")]) == ((10,"c"), fromList [(3,"b"), (5,"a")])
--- > deleteFindMax empty                                      Error: can not return the maximal element of an empty map
+||| *O(log n)*. Delete and find the maximal element.
+|||
+||| ```
+||| deleteFindMax (fromList [(5,"a"), (3,"b"), (10,"c")]) == ((10,"c"), fromList [(3,"b"), (5,"a")])
+||| deleteFindMax empty                                      Error: can not return the maximal element of an empty map
+||| ```
 export
 deleteFindMax : DMap k f -> (DSum k f, DMap k f)
 deleteFindMax t
@@ -281,10 +287,12 @@ deleteFindMax t
       --Tip             => (error "Map.deleteFindMax: can not return the maximal element of an empty map", Tip)
       Tip             => (assert_total $ idris_crash "Map.deleteFindMax: can not return the maximal element of an empty map", Tip)
 
--- | /O(log n)/. Delete and find the minimal element.
---
--- > deleteFindMin (fromList [(5,"a"), (3,"b"), (10,"c")]) == ((3,"b"), fromList[(5,"a"), (10,"c")])
--- > deleteFindMin                                            Error: can not return the minimal element of an empty map
+||| *O(log n)*. Delete and find the minimal element.
+|||
+||| ```
+||| deleteFindMin (fromList [(5,"a"), (3,"b"), (10,"c")]) == ((3,"b"), fromList[(5,"a"), (10,"c")])
+||| deleteFindMin                                            Error: can not return the minimal element of an empty map
+||| ```
 export
 deleteFindMin : DMap k f -> (DSum k f, DMap k f)
 deleteFindMin t = case minViewWithKey t of
