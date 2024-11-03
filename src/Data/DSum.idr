@@ -1,9 +1,10 @@
 ||| A module defining a dependent sum
 module Data.DSum
 
+import Data.GEq
 import Data.Some
 
-export infixr 1 :=>
+infixr 1 :=>
 ||| A dependent sum
 ||| This data type is supposed to mimic the `DSum` type from Haskells "dependent-sum" package
 public export
@@ -24,3 +25,7 @@ snd (x :=> y) = MkSome y
 export
 toSome : DSum tag f -> Some (\x => (tag x, f x))
 toSome (x :=> y) = MkSome (x, y)
+
+export
+implementation (geqTag : GEq tag) => (geqf : GEq f) => Eq (DSum tag f) where
+  (x :=> y) == (x' :=> y') = geq' @{geqTag} x x' && geq' @{geqf} y y'
