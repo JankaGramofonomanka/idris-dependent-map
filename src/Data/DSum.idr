@@ -4,7 +4,7 @@ module Data.DSum
 import Data.GEq
 import Data.Some
 
-infixr 1 :=>
+export infixr 1 :=>
 ||| A dependent sum
 ||| This data type is supposed to mimic the `DSum` type from Haskells "dependent-sum" package
 public export
