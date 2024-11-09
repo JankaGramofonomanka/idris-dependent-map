@@ -19,3 +19,10 @@ data GOrdering : t -> t -> Type where
 public export
 interface (geqImpl : GEq f) => GCompare (0 f : t -> Type) where
   gcompare : f a -> f b -> GOrdering a b
+
+export
+gcompare' : (impl : GCompare f) => f a -> f b -> Ordering
+gcompare' fa fb = case gcompare fa fb @{impl} of
+  GLT => LT
+  GEQ => EQ
+  GGT => GT
