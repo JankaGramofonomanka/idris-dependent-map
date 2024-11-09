@@ -12,6 +12,7 @@ depends = base >= 0.5.1
         , dependent-map
         , contrib
         , tester
+        , elab-util
 
 main = Main
 
