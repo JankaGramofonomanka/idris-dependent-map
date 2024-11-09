@@ -14,6 +14,9 @@ package from Haskell
   [`dependent-sum`](https://hackage.haskell.org/package/dependent-sum) and
   [`some`](https://hackage.haskell.org/package/some) packages as I needed them
   too.
+- The documentation is copy-pasted from the original project. It includes the
+  time complexity of each function, but, at least theoretically, it might not
+  be applicable to the idris code.
 
 ## License
 As mentioned above, the is derived from three sources:
