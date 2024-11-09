@@ -1,4 +1,6 @@
 module Main
 
+import Test.Data.DMap
+
 main : IO ()
-main = putStrLn "TODO"
+main = Test.Data.DMap.main
