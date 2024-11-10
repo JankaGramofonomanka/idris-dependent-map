@@ -57,8 +57,8 @@ empty = Tip
 ||| *O(1)*. A map with a single element.
 |||
 ||| ```
-||| singleton 1 'a'        == fromList [(1, 'a')]
-||| size (singleton 1 'a') == 1
+||| singleton k v        == fromList [k :=> v]
+||| size (singleton k v) == 1
 ||| ```
 export
 singleton : {0 v : a} -> k v -> f v -> DMap k f
@@ -282,9 +282,10 @@ maxViewWithKey (Bin _ k0 x0 l0 r0) = Just $ go k0 x0 l0 r0
 
 ||| *O(log n)*. Delete and find the maximal element.
 |||
+||| Given `k1, k2 < k3`
 ||| ```
-||| deleteFindMax (fromList [(5,"a"), (3,"b"), (10,"c")]) == ((10,"c"), fromList [(3,"b"), (5,"a")])
-||| deleteFindMax empty                                      Error: can not return the maximal element of an empty map
+||| deleteFindMax (fromList [k1 :=> v1, k2 :=> v2, k3 :=> v3]) == (k3 :=> v3, fromList [k1 :=> v1, k2 :=> v2])
+||| deleteFindMax empty                                            Error: can not return the maximal element of an empty map
 ||| ```
 export
 deleteFindMax : DMap k f -> (DSum k f, DMap k f)
@@ -292,19 +293,19 @@ deleteFindMax t
   = case t of
       Bin _ k x l Tip => (k :=> x,l)
       Bin _ k x l r   => let (km,r') = deleteFindMax r in (km,balance k x l r')
-      --Tip             => (error "Map.deleteFindMax: can not return the maximal element of an empty map", Tip)
-      Tip             => (assert_total $ idris_crash "Map.deleteFindMax: can not return the maximal element of an empty map", Tip)
+      Tip             => (assert_total $ idris_crash "DMap.deleteFindMax: can not return the maximal element of an empty map", Tip)
 
 ||| *O(log n)*. Delete and find the minimal element.
 |||
+||| Given `k2 > k1, k3`
 ||| ```
-||| deleteFindMin (fromList [(5,"a"), (3,"b"), (10,"c")]) == ((3,"b"), fromList[(5,"a"), (10,"c")])
-||| deleteFindMin                                            Error: can not return the minimal element of an empty map
+||| deleteFindMin (fromList [k1 :=> v1, k2 :=> v2, k3 :=> v3]) == (k2 :=> v2, fromList [k1 :=> v1, k3 :=> v3])
+||| deleteFindMin                                                  Error: can not return the minimal element of an empty map
 ||| ```
 export
 deleteFindMin : DMap k f -> (DSum k f, DMap k f)
 deleteFindMin t = case minViewWithKey t of
-  Nothing => (assert_total $ idris_crash "Map.deleteFindMin: can not return the minimal element of an empty map", Tip)
+  Nothing => (assert_total $ idris_crash "DMap.deleteFindMin: can not return the minimal element of an empty map", Tip)
   Just p => p
 
 {--------------------------------------------------------------------
@@ -427,7 +428,6 @@ notMember k m = not (member k m)
 private
 find : GCompare k => k v -> DMap k f -> f v
 find k m = case lookup k m of
-    --Nothing => error "DMap.find: element not in the map"
     Nothing => assert_total $ prim__crash (f v) "DMap.find: element not in the map"
     Just v  => v
 
@@ -679,14 +679,14 @@ export
 findIndex : GCompare k => k v -> DMap k f -> Int
 findIndex k t
   = case lookupIndex k t of
-      Nothing  => assert_total $ idris_crash "Map.findIndex: element is not in the map"
+      Nothing  => assert_total $ idris_crash "DMap.findIndex: element is not in the map"
       Just idx => idx
 
 ||| *O(log n)*. Retrieve an element by *index*. Calls 'error' when an
 ||| invalid index is used.
 export
 elemAt : Int -> DMap k f -> DSum k f
-elemAt _ Tip = assert_total $ idris_crash "Map.elemAt: index out of range"
+elemAt _ Tip = assert_total $ idris_crash "DMap.elemAt: index out of range"
 elemAt i (Bin _ kx x l r)
   = case compare i sizeL of
       LT => elemAt i l
@@ -735,12 +735,12 @@ lookupMin m = case m of
     go kx x Tip = kx :=> x
     go _  _ (Bin _ kx x l _) = go kx x l
 
-||| *O(log n)*. The minimal key of the map. Calls 'error' is the map is empty.
+||| *O(log n)*. The minimal key of the map. Calls 'error' if the map is empty.
 export
 findMin : DMap k f -> DSum k f
 findMin m = case lookupMin m of
   Just x => x
-  Nothing => assert_total $ idris_crash "Map.findMin: empty map has no minimal element"
+  Nothing => assert_total $ idris_crash "DMap.findMin: empty map has no minimal element"
 
 export
 lookupMax : DMap k f -> Maybe (DSum k f)
@@ -752,12 +752,12 @@ lookupMax m = case m of
     go kx x Tip = kx :=> x
     go _  _ (Bin _ kx x _ r) = go kx x r
 
-||| *O(log n)*. The maximal key of the map. Calls 'error' is the map is empty.
+||| *O(log n)*. The maximal key of the map. Calls 'error' if the map is empty.
 export
 findMax : DMap k f -> DSum k f
 findMax m = case lookupMax m of
   Just x => x
-  Nothing => assert_total $ idris_crash "Map.findMax: empty map has no maximal element"
+  Nothing => assert_total $ idris_crash "DMap.findMax: empty map has no maximal element"
 
 ||| *O(log n)*. Delete the minimal key. Returns an empty map if the map is empty.
 export
@@ -1261,7 +1261,7 @@ assocs m = toList m
 ||| *O(n)*. Return all keys of the map in ascending order.
 |||
 ||| ```
-||| keys (fromList [(5,"a"), (3,"b")]) == [3,5]
+||| keys (fromList [k1 :=> v1, k2 :=> v2]) == [k1, k2]
 ||| keys empty == []
 ||| ```
 export
