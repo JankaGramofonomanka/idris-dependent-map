@@ -5,11 +5,11 @@ module Data.DMap
 import Control.Monad.State
 import Data.Maybe
 
-import Data.DSum
-import Data.GCompare
-import Data.GEq
-import Data.ShowS
-import Data.Some
+import public Data.DSum
+import public Data.GCompare
+import public Data.GEq
+import public Data.ShowS
+import public Data.Some
 
 error : String -> a
 error msg = assert_total $ idris_crash msg
