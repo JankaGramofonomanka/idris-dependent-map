@@ -854,16 +854,6 @@ splitLookupWithKey key = go
       GEQ => (l, Just (kx, x), r)
 
 {--------------------------------------------------------------------
-  Eq converts the tree to a list. In a lazy setting, this
-  actually seems one of the faster methods to compare two trees
-  and it is certainly the simplest :-)
---------------------------------------------------------------------}
-{-
-instance (GEq k, Has' Eq k f) => Eq (DMap k f) where
-  t1 == t2  = (size t1 == size t2) && (toAscList t1 == toAscList t2)
--}
-
-{--------------------------------------------------------------------
   Union.
 --------------------------------------------------------------------}
 
@@ -1247,6 +1237,17 @@ fromAscListWithKey func xs = fromDistinctAscList (combineEq func xs)
 export
 fromAscList : GEq k => List (DSum k f) -> DMap k f
 fromAscList xs = fromAscListWithKey (\_ => \x => \_ => x) xs
+
+{--------------------------------------------------------------------
+  Eq converts the tree to a list. In a lazy setting, this
+  actually seems one of the faster methods to compare two trees
+  and it is certainly the simplest :-)
+--------------------------------------------------------------------}
+--implementation (GEq k, Has' Eq k f) => Eq (DMap k f) where
+export
+implementation GEq k => GEq f => Eq (DMap k f) where
+  t1 == t2 = (size t1 == size t2) && (toAscList t1 == toAscList t2)
+
 
 {--------------------------------------------------------------------
   List variations
