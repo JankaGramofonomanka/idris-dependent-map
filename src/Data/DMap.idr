@@ -11,6 +11,9 @@ import Data.GEq
 import Data.ShowS
 import Data.Some
 
+error : String -> a
+error msg = assert_total $ idris_crash msg
+
 {--------------------------------------------------------------------
 ---------------------------------------------------------------------
   Data.Dependent.Map.Intenal
@@ -153,16 +156,16 @@ bin k x l r
 private
 singleL, singleR : {0 v : a} -> k v -> f v -> DMap k f -> DMap k f -> DMap k f
 singleL k1 x1 t1 (Bin _ k2 x2 t2 t3)  = bin k2 x2 (bin k1 x1 t1 t2) t3
-singleL _ _ _ Tip = assert_total $ idris_crash "error: singleL Tip"
+singleL _ _ _ Tip = error "error: singleL Tip"
 singleR k1 x1 (Bin _ k2 x2 t1 t2) t3  = bin k2 x2 t1 (bin k1 x1 t2 t3)
-singleR _ _ Tip _ = assert_total $ idris_crash "error: singleR Tip"
+singleR _ _ Tip _ = error "error: singleR Tip"
 
 private
 doubleL, doubleR : {0 v : a} -> k v -> f v -> DMap k f -> DMap k f -> DMap k f
 doubleL k1 x1 t1 (Bin _ k2 x2 (Bin _ k3 x3 t2 t3) t4) = bin k3 x3 (bin k1 x1 t1 t2) (bin k2 x2 t3 t4)
-doubleL _ _ _ _ = assert_total $ idris_crash "error: doubleL"
+doubleL _ _ _ _ = error "error: doubleL"
 doubleR k1 x1 (Bin _ k2 x2 t1 (Bin _ k3 x3 t2 t3)) t4 = bin k3 x3 (bin k2 x2 t1 t2) (bin k1 x1 t3 t4)
-doubleR _ _ _ _ = assert_total $ idris_crash "error: doubleR"
+doubleR _ _ _ _ = error "error: doubleR"
 
 
 -- rotate
@@ -171,14 +174,14 @@ rotateL : {0 v : a} -> k v -> f v -> DMap k f -> DMap k f -> DMap k f
 rotateL k x l r@(Bin _ _ _ ly ry)
   = if size ly < ratio*size ry then singleL k x l r
                                else doubleL k x l r
-rotateL _ _ _ Tip = assert_total $ idris_crash "error: rotateL Tip"
+rotateL _ _ _ Tip = error "error: rotateL Tip"
 
 private
 rotateR : {0 v : a} -> k v -> f v -> DMap k f -> DMap k f -> DMap k f
 rotateR k x l@(Bin _ _ _ ly ry) r
   = if size ry < ratio*size ly then singleR k x l r
                                else doubleR k x l r
-rotateR _ _ Tip _ = assert_total $ idris_crash "error: rotateR Tip"
+rotateR _ _ Tip _ = error "error: rotateR Tip"
 
 
 {--------------------------------------------------------------------
@@ -293,7 +296,7 @@ deleteFindMax t
   = case t of
       Bin _ k x l Tip => (k :=> x,l)
       Bin _ k x l r   => let (km,r') = deleteFindMax r in (km,balance k x l r')
-      Tip             => (assert_total $ idris_crash "DMap.deleteFindMax: can not return the maximal element of an empty map", Tip)
+      Tip             => (error "DMap.deleteFindMax: can not return the maximal element of an empty map", Tip)
 
 ||| *O(log n)*. Delete and find the minimal element.
 |||
@@ -305,7 +308,7 @@ deleteFindMax t
 export
 deleteFindMin : DMap k f -> (DSum k f, DMap k f)
 deleteFindMin t = case minViewWithKey t of
-  Nothing => (assert_total $ idris_crash "DMap.deleteFindMin: can not return the minimal element of an empty map", Tip)
+  Nothing => (error "DMap.deleteFindMin: can not return the minimal element of an empty map", Tip)
   Just p => p
 
 {--------------------------------------------------------------------
@@ -428,7 +431,7 @@ notMember k m = not (member k m)
 private
 find : GCompare k => k v -> DMap k f -> f v
 find k m = case lookup k m of
-    Nothing => assert_total $ prim__crash (f v) "DMap.find: element not in the map"
+    Nothing => error "DMap.find: element not in the map"
     Just v  => v
 
 ||| *O(log n)*. The expression `('findWithDefault' def k map)` returns
@@ -679,14 +682,14 @@ export
 findIndex : GCompare k => k v -> DMap k f -> Int
 findIndex k t
   = case lookupIndex k t of
-      Nothing  => assert_total $ idris_crash "DMap.findIndex: element is not in the map"
+      Nothing  => error "DMap.findIndex: element is not in the map"
       Just idx => idx
 
 ||| *O(log n)*. Retrieve an element by *index*. Calls 'error' when an
 ||| invalid index is used.
 export
 elemAt : Int -> DMap k f -> DSum k f
-elemAt _ Tip = assert_total $ idris_crash "DMap.elemAt: index out of range"
+elemAt _ Tip = error "DMap.elemAt: index out of range"
 elemAt i (Bin _ kx x l r)
   = case compare i sizeL of
       LT => elemAt i l
@@ -740,7 +743,7 @@ export
 findMin : DMap k f -> DSum k f
 findMin m = case lookupMin m of
   Just x => x
-  Nothing => assert_total $ idris_crash "DMap.findMin: empty map has no minimal element"
+  Nothing => error "DMap.findMin: empty map has no minimal element"
 
 export
 lookupMax : DMap k f -> Maybe (DSum k f)
@@ -757,7 +760,7 @@ export
 findMax : DMap k f -> DSum k f
 findMax m = case lookupMax m of
   Just x => x
-  Nothing => assert_total $ idris_crash "DMap.findMax: empty map has no maximal element"
+  Nothing => error "DMap.findMax: empty map has no maximal element"
 
 ||| *O(log n)*. Delete the minimal key. Returns an empty map if the map is empty.
 export
@@ -1198,7 +1201,7 @@ fromDistinctAscList xs = build const (cast $ length xs) xs
       build c 5 xs' = case xs' of
         ((k1 :=> x1) :: (k2 :=> x2) :: (k3 :=> x3) :: (k4 :=> x4) :: (k5 :=> x5) :: xx)
           => c (bin k4 x4 (bin k2 x2 (singleton k1 x1) (singleton k3 x3)) (singleton k5 x5)) xx
-        _ => assert_total $ idris_crash "fromDistinctAscList build"
+        _ => error "fromDistinctAscList build"
       build c n xs' = build (buildR nr c) nl xs'
         where
           nl, nr : Int
@@ -1207,7 +1210,7 @@ fromDistinctAscList xs = build const (cast $ length xs) xs
 
       buildR : Int -> (DMap k f -> List (DSum k f) -> b) -> DMap k f -> List (DSum k f) -> b
       buildR n c l ((k :=> x) :: ys) = build (buildB l k x c) n ys
-      buildR _ _ _ []                = assert_total $ idris_crash "fromDistinctAscList buildR []"
+      buildR _ _ _ []                = error "fromDistinctAscList buildR []"
 
 
 
