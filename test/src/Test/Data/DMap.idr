@@ -47,9 +47,13 @@ implementation GCompare K where
 implementation GCompare V where
   gcompare xs ys = unsafeOrderingToGOrdering (compare (toList xs) (toList ys))
 
--- TODO get rid of this, define GShow etc.
+-- TODO get rid of this, define `GShow` etc.
 implementation Show (DSum K V) where
   show (k :=> v) = show k ++ " :=> " ++ show v
+
+-- TODO get rid of this, define `Show` for `DMap`
+implementation Show (DMap K V) where
+  show dmap = "fromList " ++ show (toList dmap)
 
 -- Test Data
 k00, k10, k20 : K 0
@@ -110,16 +114,12 @@ namespace FromList
   fromEmpty : Test
   fromEmpty
     = test "make a map from an empty list"
-    $ let list = []
-      in assertElems list (fromList list)
-      -- TODO implement Eq for dmaps
-      -- assertElems emmpty (fromList [])
+    $ assertEq empty (the (DMap K V) (fromList []))
 
   fromSingleton : Test
   fromSingleton
     = test "make a map from singleton list"
-    $ let list = [kva0]
-      in assertElems list (fromList list)
+    $ assertEq (singleton ka0 va0) (fromList [kva0])
 
   fromAllPairs : Test
   fromAllPairs
@@ -130,14 +130,56 @@ namespace FromList
   tests : List Test
   tests = [fromEmpty, fromSingleton, fromAllPairs]
 
+namespace Eq
+  reflexiveEmpty : Test
+  reflexiveEmpty
+    = test "`empty == empty`"
+    $ let
+      dmap : DMap K V
+      dmap = empty
+      in assertEq dmap dmap
+
+  reflexiveNonEmpty : Test
+  reflexiveNonEmpty
+    = test "`dmap == dmap`"
+    $ let
+      dmap = DMap.fromList allPairs
+      in assertEq dmap dmap
+
+  reversedEqualsItself : Test
+  reversedEqualsItself
+    = test "`fromList l == fromList (reverse l)`"
+    $ assertEq (DMap.fromList allPairs) (fromList $ reverse allPairs)
+
+  emptyNonEmpty : Test
+  emptyNonEmpty
+    = test "`empty /= dmap` where `dmap` is non-empty"
+    $ let dmap = fromList allPairs
+      in assertNotEq DMap.empty dmap
+
+  differentElems : Test
+  differentElems
+    = test "maps constructed from different elements are not equal"
+    $ let
+      lhs = DMap.fromList (take 3 allPairs)
+      rhs = DMap.fromList (drop 6 allPairs)
+      in assertNotEq lhs rhs
+
+  export
+  tests : List Test
+  tests
+    = [ reflexiveEmpty
+      , reflexiveNonEmpty
+      , reversedEqualsItself
+      , emptyNonEmpty
+      , differentElems
+      ]
+
 namespace Insert
   insert1 : Test
   insert1
     = test "insert 1 element"
-    $ let
-      dmap = insert ka0 va0 empty
-      kvs  = toList dmap
-    in assert (kva0 `elem` kvs)
+    $ assertElems [kva0] (insert ka0 va0 empty)
 
   insert2Different : Test
   insert2Different
@@ -252,9 +294,7 @@ namespace Delete
     $ let
       dmap : DMap K V
       dmap = empty
-      in assertElems [] (delete kc2 dmap)
-      -- TODO implement Eq for dmaps
-      -- in assertElems empty (delete kc2 dmap)
+      in assertEq empty (delete kc2 dmap)
 
   deleteNonExistent : Test
   deleteNonExistent
@@ -262,9 +302,7 @@ namespace Delete
     $ let
       dmap : DMap K V
       dmap = fromList [kvb0, kvb1, kvb2]
-      in assertElems [kvb0, kvb1, kvb2] (delete ka0 dmap)
-      -- TODO implement Eq for dmaps
-      -- in assertEq empty (delete ka0 dmap)
+      in assertEq dmap (delete ka0 dmap)
 
   export
   tests : List Test
@@ -369,6 +407,7 @@ namespace Intersection
 allTests : List Test
 allTests
    = FromList.tests
+  ++ Eq.tests
   ++ Insert.tests
   ++ Lookup.tests
   ++ Delete.tests
