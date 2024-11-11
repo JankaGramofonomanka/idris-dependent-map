@@ -10,20 +10,11 @@ package from Haskell
 - In the original code there was some pointer equality magic, that I did not
   understand, that I had to rewrite in a conventional way, possibly to the
   detriment of perfomance.
-- For now, the package contains some elements of the
-  [`dependent-sum`](https://hackage.haskell.org/package/dependent-sum) and
-  [`some`](https://hackage.haskell.org/package/some) packages as I needed them
-  too.
 - The documentation is copy-pasted from the original project. It includes the
   time complexity of each function, but, at least theoretically, it might not
   be applicable to the idris code.
 
 ## License
-As mentioned above, the is derived from three sources:
-[`dependent-map`](https://hackage.haskell.org/package/dependent-map),
-[`dependent-sum`](https://hackage.haskell.org/package/dependent-sum) and
-[`some`](https://hackage.haskell.org/package/some).
-
 The license in
 [`dependent-map`](https://hackage.haskell.org/package/dependent-map) mentions
 that it was derived from the
@@ -36,8 +27,7 @@ and it only mentions the GHC project now. I therefore omit these two copyright
 notices in the license of this project.
 
 The authors of
-[`dependent-map`](https://hackage.haskell.org/package/dependent-map) and
-[`dependent-sum`](https://hackage.haskell.org/package/dependent-sum) state
+[`dependent-map`](https://hackage.haskell.org/package/dependent-map) and state
 that they consider their contributions public domain.
 
 The licenses of the original projects can be found in the `original-licenses`
