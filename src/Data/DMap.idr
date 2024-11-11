@@ -6,13 +6,21 @@ import Control.Monad.State
 import Data.Maybe
 
 import public Data.DSum
-import public Data.GCompare
-import public Data.GEq
-import public Data.ShowS
+import public Data.DOrd
+import public Data.DEq
 import public Data.Some
 
 error : String -> a
 error msg = assert_total $ idris_crash msg
+
+||| A copy of Haskells `ShowS` type
+public export
+ShowS : Type
+ShowS = String -> String
+
+||| A copy of Haskells `GHC.Show.showString` function
+showString : String -> ShowS
+showString = (++)
 
 {--------------------------------------------------------------------
 ---------------------------------------------------------------------
@@ -88,24 +96,24 @@ size (Bin n _ _ _ _)    = n
 ||| The function will return the corresponding value as `('Just' value)`,
 ||| or 'Nothing' if the key isn't in the map.
 export
-lookup : (impl : GCompare k) => k v -> DMap k f -> Maybe (f v)
+lookup : (impl : DOrd k) => k v -> DMap k f -> Maybe (f v)
 lookup k Tip = Nothing
-lookup k (Bin _ kx x l r) = case gcompare k kx @{impl} of
-  GLT => lookup k l
-  GGT => lookup k r
-  GEQ => Just x
+lookup k (Bin _ kx x l r) = case dcompare k kx @{impl} of
+  DLT => lookup k l
+  DGT => lookup k r
+  DEQ => Just x
 
 private
-lookupAssoc : (impl : GCompare k) => Some k -> DMap k f -> Maybe (DSum k f)
+lookupAssoc : (impl : DOrd k) => Some k -> DMap k f -> Maybe (DSum k f)
 lookupAssoc sk = withSome sk $ \key =>
   let
     go : DMap k f -> Maybe (DSum k f)
     go Tip = Nothing
     go (Bin _ kx x l r) =
-        case gcompare key kx @{impl} of
-            GLT => go l
-            GGT => go r
-            GEQ => Just (kx :=> x)
+        case dcompare key kx @{impl} of
+            DLT => go l
+            DGT => go r
+            DEQ => Just (kx :=> x)
   in go
 
 {--------------------------------------------------------------------
@@ -249,7 +257,7 @@ insertMin kx x t
           => balance ky y (insertMin kx x l) r
 
 private
-combine : GCompare k => k v -> f v -> DMap k f -> DMap k f -> DMap k f
+combine : DOrd k => k v -> f v -> DMap k f -> DMap k f -> DMap k f
 combine kx x Tip r  = insertMin kx x r
 combine kx x l Tip  = insertMax kx x l
 combine kx x l@(Bin sizeL ky y ly ry) r@(Bin sizeR kz z lz rz)
@@ -369,22 +377,22 @@ trim cmplo cmphi t@(Bin _ kx _ l r)
       _  => trim cmplo cmphi r
 
 private
-trimLookupLo : GCompare k => Some k -> (Some k -> Ordering) -> DMap k f -> (Maybe (DSum k f), DMap k f)
+trimLookupLo : DOrd k => Some k -> (Some k -> Ordering) -> DMap k f -> (Maybe (DSum k f), DMap k f)
 trimLookupLo _  _     Tip = (Nothing,Tip)
 trimLookupLo lo cmphi t@(Bin _ kx x l r)
-  = case compare lo (MkSome kx) @{viaGCompare} of
+  = case compare lo (MkSome kx) of
       LT => case cmphi (MkSome kx) of
               GT => (lookupAssoc lo t, t)
               _  => trimLookupLo lo cmphi l
       GT => trimLookupLo lo cmphi r
-      EQ => (Just (kx :=> x), trim (compare lo @{viaGCompare}) cmphi r)
+      EQ => (Just (kx :=> x), trim (compare lo) cmphi r)
 
 {--------------------------------------------------------------------
   [filterGt k t] filter all keys >[k] from tree [t]
   [filterLt k t] filter all keys <[k] from tree [t]
 --------------------------------------------------------------------}
 private
-filterGt : GCompare k => (Some k -> Ordering) -> DMap k f -> DMap k f
+filterGt : DOrd k => (Some k -> Ordering) -> DMap k f -> DMap k f
 filterGt cmp = go
   where
     go : DMap k f -> DMap k f
@@ -395,7 +403,7 @@ filterGt cmp = go
               EQ => r
 
 private
-filterLt : GCompare k => (Some k -> Ordering) -> DMap k f -> DMap k f
+filterLt : DOrd k => (Some k -> Ordering) -> DMap k f -> DMap k f
 filterLt cmp = go
   where
     go : DMap k f -> DMap k f
@@ -417,19 +425,19 @@ filterLt cmp = go
 
 ||| *O(log n)*. Is the key a member of the map? See also 'notMember'.
 export
-member : GCompare k => k a -> DMap k f -> Bool
+member : DOrd k => k a -> DMap k f -> Bool
 member k = isJust . lookup k
 
 ||| *O(log n)*. Is the key not a member of the map? See also 'member'.
 export
-notMember : GCompare k => k v -> DMap k f -> Bool
+notMember : DOrd k => k v -> DMap k f -> Bool
 notMember k m = not (member k m)
 
 ||| *O(log n)*. Find the value at a key.
 ||| Calls 'error' when the element can not be found.
 ||| Consider using 'lookup' when elements may not be present.
 private
-find : GCompare k => k v -> DMap k f -> f v
+find : DOrd k => k v -> DMap k f -> f v
 find k m = case lookup k m of
     Nothing => error "DMap.find: element not in the map"
     Just v  => v
@@ -438,7 +446,7 @@ find k m = case lookup k m of
 ||| the value at key `k` or returns default value `def`
 ||| when the key is not in the map.
 export
-findWithDefault : GCompare k => f v -> k v -> DMap k f -> f v
+findWithDefault : DOrd k => f v -> k v -> DMap k f -> f v
 findWithDefault def k m = case lookup k m of
     Nothing => def
     Just v  => v
@@ -452,47 +460,47 @@ findWithDefault def k m = case lookup k m of
 ||| replaced with the supplied value. 'insert' is equivalent to
 ||| `'insertWith' 'const'`.
 export
-insert : (impl : GCompare k) => k v -> f v -> DMap k f -> DMap k f
+insert : (impl : DOrd k) => k v -> f v -> DMap k f -> DMap k f
 insert kx x = evalState False . go
   where
     go : DMap k f -> State Bool (DMap k f)
     go Tip = put True >> pure (singleton kx x)
-    go t@(Bin sz ky y l r) = case gcompare kx ky @{impl} of
-      GLT => do
+    go t@(Bin sz ky y l r) = case dcompare kx ky @{impl} of
+      DLT => do
         l' <- go l
         sizeChange <- get
         -- originally pointer equality was used to see if the tree was modified
         if sizeChange then pure (balance ky y l' r)
                       else pure (Bin sz ky y l' r)
-      GGT => do
+      DGT => do
         r' <- go r
         sizeChange <- get
         -- as above
         if sizeChange then pure (balance ky y l r')
                       else pure (Bin sz ky y l r')
-      GEQ => pure (Bin sz kx x l r)
+      DEQ => pure (Bin sz kx x l r)
 
 ||| *O(log n)*. Insert a new key and value in the map if the key
 ||| is not already present. If the key is already present, `insertR`
 ||| does nothing.
 private
-insertR : (impl : GCompare k) => k v -> f v -> DMap k f -> DMap k f
+insertR : (impl : DOrd k) => k v -> f v -> DMap k f -> DMap k f
 insertR kx x = go
     where
         go : DMap k f -> DMap k f
         go Tip = singleton kx x
-        go (Bin sz ky y l r) = case gcompare kx ky @{impl} of
-            GLT => let l' = go l
+        go (Bin sz ky y l r) = case dcompare kx ky @{impl} of
+            DLT => let l' = go l
                    -- ponter equality used before on trees
                    in if size l' == size l
                       then Bin sz ky y l' r
                       else balance ky y l' r
-            GGT => let r' = go r
+            DGT => let r' = go r
                    -- as above
                    in if size r' == size r
                    then Bin sz ky y l r'
                    else balance ky y l r'
-            GEQ => Bin sz kx x l r
+            DEQ => Bin sz kx x l r
 
 ||| *O(log n)*. Insert with a function, combining key, new value and old value.
 ||| `'insertWithKey' f key value mp`
@@ -501,16 +509,16 @@ insertR kx x = go
 ||| insert the entry `key :=> f key new_value old_value`.
 ||| Note that the key passed to f is the same key passed to 'insertWithKey'.
 export
-insertWithKey : (impl : GCompare k) => (k v -> f v -> f v -> f v) -> k v -> f v -> DMap k f -> DMap k f
+insertWithKey : (impl : DOrd k) => (k v -> f v -> f v -> f v) -> k v -> f v -> DMap k f -> DMap k f
 insertWithKey func kx x = go
   where
     go : DMap k f -> DMap k f
     go Tip = singleton kx x
     go (Bin sy ky y l r) =
-        case gcompare kx ky @{impl} of
-            GLT => balance ky y (go l) r
-            GGT => balance ky y l (go r)
-            GEQ => Bin sy kx (func kx x y) l r
+        case dcompare kx ky @{impl} of
+            DLT => balance ky y (go l) r
+            DGT => balance ky y l (go r)
+            DEQ => Bin sy kx (func kx x y) l r
 
 ||| *O(log n)*. Insert with a function, combining new value and old value.
 ||| `'insertWith' f key value mp`
@@ -518,14 +526,14 @@ insertWithKey func kx x = go
 ||| not exist in the map. If the key does exist, the function will
 ||| insert the entry `key :=> f new_value old_value`.
 export
-insertWith : GCompare k => (f v -> f v -> f v) -> k v -> f v -> DMap k f -> DMap k f
+insertWith : DOrd k => (f v -> f v -> f v) -> k v -> f v -> DMap k f -> DMap k f
 insertWith f = insertWithKey (\_ => \x' => \y' => f x' y')
 
 ||| *O(log n)*. Combines insert operation with old value retrieval.
 ||| The expression (`'insertLookupWithKey' f k x map`)
 ||| is a pair where the first element is equal to (`'lookup' k map`)
 export
-insertLookupWithKey : (impl : GCompare k)
+insertLookupWithKey : (impl : DOrd k)
                    => (k v -> f v -> f v -> f v)
                    -> k v
                    -> f v
@@ -536,12 +544,12 @@ insertLookupWithKey func kx x = go
     go : DMap k f -> (Maybe (f v), DMap k f)
     go Tip = (Nothing, singleton kx x)
     go (Bin sy ky y l r) =
-        case gcompare kx ky @{impl} of
-            GLT => let (found, l') = go l
+        case dcompare kx ky @{impl} of
+            DLT => let (found, l') = go l
                   in (found, balance ky y l' r)
-            GGT => let (found, r') = go r
+            DGT => let (found, r') = go r
                   in (found, balance ky y l r')
-            GEQ => (Just y, Bin sy kx (func kx x y) l r)
+            DEQ => (Just y, Bin sy kx (func kx x y) l r)
 
 {--------------------------------------------------------------------
   Deletion
@@ -552,34 +560,34 @@ insertLookupWithKey func kx x = go
 ||| a member of the map, the original map is returned.
 --delete :: forall k f v. GCompare k => k v -> DMap k f -> DMap k f
 export
-delete : (impl : GCompare k) => k v -> DMap k f -> DMap k f
+delete : (impl : DOrd k) => k v -> DMap k f -> DMap k f
 delete k' = go
   where
     go : DMap k f -> DMap k f
     go Tip = Tip
     go (Bin _ kx x l r) =
-        case gcompare k' kx @{impl} of
-            GLT => balance kx x (go l) r
-            GGT => balance kx x l (go r)
-            GEQ => glue l r
+        case dcompare k' kx @{impl} of
+            DLT => balance kx x (go l) r
+            DGT => balance kx x l (go r)
+            DEQ => glue l r
 
 ||| *O(log n)*. Adjust a value at a specific key. When the key is not
 ||| a member of the map, the original map is returned.
-adjustWithKey : (impl : GCompare k) => (k v -> f v -> f v) -> k v -> DMap k f -> DMap k f
+adjustWithKey : (impl : DOrd k) => (k v -> f v -> f v) -> k v -> DMap k f -> DMap k f
 adjustWithKey f0 k0 = go f0 k0
   where
     go : (k v -> f v -> f v) -> k v -> DMap k f -> DMap k f
     go f k Tip = Tip
     go f k (Bin sx kx x l r) =
-      case gcompare k kx @{impl} of
-        GLT => Bin sx kx x (go f k l) r
-        GGT => Bin sx kx x l (go f k r)
-        GEQ => Bin sx kx (f kx x) l r
+      case dcompare k kx @{impl} of
+        DLT => Bin sx kx x (go f k l) r
+        DGT => Bin sx kx x l (go f k r)
+        DEQ => Bin sx kx (f kx x) l r
 
 ||| *O(log n)*. Update a value at a specific key with the result of the provided function.
 ||| When the key is not
 ||| a member of the map, the original map is returned.
-adjust : GCompare k => (f v -> f v) -> k v -> DMap k f -> DMap k f
+adjust : DOrd k => (f v -> f v) -> k v -> DMap k f -> DMap k f
 adjust f = adjustWithKey (\_ => \x => f x)
 
 ||| *O(log n)*. The expression (`'updateWithKey' f k map`) updates the
@@ -587,16 +595,16 @@ adjust f = adjustWithKey (\_ => \x => f x)
 ||| the element is deleted. If it is (`'Just' y`), the key `k` is bound
 ||| to the new value `y`.
 export
-updateWithKey : (impl : GCompare k) => (k v -> f v -> Maybe (f v)) -> k v -> DMap k f -> DMap k f
+updateWithKey : (impl : DOrd k) => (k v -> f v -> Maybe (f v)) -> k v -> DMap k f -> DMap k f
 updateWithKey func key = go
   where
     go : DMap k f -> DMap k f
     go Tip = Tip
     go (Bin sx kx x l r) =
-        case gcompare key kx @{impl} of
-           GLT => balance kx x (go l) r
-           GGT => balance kx x l (go r)
-           GEQ => case func kx x of
+        case dcompare key kx @{impl} of
+           DLT => balance kx x (go l) r
+           DGT => balance kx x l (go r)
+           DEQ => case func kx x of
                    Just x' => Bin sx kx x' l r
                    Nothing => glue l r
 
@@ -604,23 +612,23 @@ updateWithKey func key = go
 ||| at `k` (if it is in the map). If (`f x`) is 'Nothing', the element is
 ||| deleted. If it is (`'Just' y`), the key `k` is bound to the new value `y`.
 export
-update : GCompare k => (f v -> Maybe (f v)) -> k v -> DMap k f -> DMap k f
+update : DOrd k => (f v -> Maybe (f v)) -> k v -> DMap k f -> DMap k f
 update f = updateWithKey (\_ => \x => f x)
 
 ||| *O(log n)*. Lookup and update. See also 'updateWithKey'.
 ||| The function returns changed value, if it is updated.
 ||| Returns the original key value if the map entry is deleted.
 export
-updateLookupWithKey : (impl : GCompare k) => (k v -> f v -> Maybe (f v)) -> k v -> DMap k f -> (Maybe (f v), DMap k f)
+updateLookupWithKey : (impl : DOrd k) => (k v -> f v -> Maybe (f v)) -> k v -> DMap k f -> (Maybe (f v), DMap k f)
 updateLookupWithKey func key = go
  where
    go : DMap k f -> (Maybe (f v), DMap k f)
    go Tip = (Nothing,Tip)
    go (Bin sx kx x l r) =
-          case gcompare key kx @{impl} of
-               GLT => let (found,l') = go l in (found,balance kx x l' r)
-               GGT => let (found,r') = go r in (found,balance kx x l r')
-               GEQ => case func kx x of
+          case dcompare key kx @{impl} of
+               DLT => let (found,l') = go l in (found,balance kx x l' r)
+               DGT => let (found,r') = go r in (found,balance kx x l r')
+               DEQ => case func kx x of
                        Just x' => (Just x',Bin sx kx x' l r)
                        Nothing => (Just x,glue l r)
 
@@ -628,7 +636,7 @@ updateLookupWithKey func key = go
 ||| 'alter' can be used to insert, delete, or update a value in a 'Map'.
 ||| In short : `'lookup' k ('alter' f k m) = f ('lookup' k m)`.
 export
-alter : (impl : GCompare k) => (Maybe (f v) -> Maybe (f v)) -> k v -> DMap k f -> DMap k f
+alter : (impl : DOrd k) => (Maybe (f v) -> Maybe (f v)) -> k v -> DMap k f -> DMap k f
 alter func key = go
   where
     go : DMap k f -> DMap k f
@@ -636,26 +644,26 @@ alter func key = go
                Nothing => Tip
                Just x  => singleton key x
 
-    go (Bin sx kx x l r) = case gcompare key kx @{impl} of
-               GLT => balance kx x (go l) r
-               GGT => balance kx x l (go r)
-               GEQ => case func (Just x) of
+    go (Bin sx kx x l r) = case dcompare key kx @{impl} of
+               DLT => balance kx x (go l) r
+               DGT => balance kx x l (go r)
+               DEQ => case func (Just x) of
                        Just x' => Bin sx kx x' l r
                        Nothing => glue l r
 
 ||| Works the same as 'alter' except the new value is returned in some 'Functor' `f`.
 ||| In short : `(\v' -> alter (const v') k dm) <$> f (lookup k dm)`
 export
-alterF : (impl : GCompare k) => Functor f => k v -> (Maybe (g v) -> f (Maybe (g v))) -> DMap k g -> f (DMap k g)
+alterF : (impl : DOrd k) => Functor f => k v -> (Maybe (g v) -> f (Maybe (g v))) -> DMap k g -> f (DMap k g)
 alterF key func = go
   where
     go : DMap k g -> f (DMap k g)
     go Tip = maybe Tip (singleton key) <$> func Nothing
 
-    go (Bin sx kx x l r) = case gcompare key kx @{impl} of
-      GLT => (\l' => balance kx x l' r) <$> go l
-      GGT => (\r' => balance kx x l r') <$> go r
-      GEQ => maybe (glue l r) (\x' => Bin sx kx x' l r) <$> func (Just x)
+    go (Bin sx kx x l r) = case dcompare key kx @{impl} of
+      DLT => (\l' => balance kx x l' r) <$> go l
+      DGT => (\r' => balance kx x l r') <$> go r
+      DEQ => maybe (glue l r) (\x' => Bin sx kx x' l r) <$> func (Just x)
 
 {--------------------------------------------------------------------
   Indexing
@@ -664,22 +672,22 @@ alterF key func = go
 ||| *O(log n)*. Lookup the *index* of a key. The index is a number from
 ||| *0* up to, but not including, the 'size' of the map.
 export
-lookupIndex : (impl : GCompare k) => k v -> DMap k f -> Maybe Int
+lookupIndex : (impl : DOrd k) => k v -> DMap k f -> Maybe Int
 lookupIndex key = go 0
   where
     go : Int -> DMap k f -> Maybe Int
     go idx Tip  = Nothing
     go idx (Bin _ kx _ l r)
-      = case gcompare key kx @{impl} of
-          GLT => go idx l
-          GGT => go (idx + size l + 1) r
-          GEQ => Just (idx + size l)
+      = case dcompare key kx @{impl} of
+          DLT => go idx l
+          DGT => go (idx + size l + 1) r
+          DEQ => Just (idx + size l)
 
 ||| *O(log n)*. Return the *index* of a key. The index is a number from
 ||| *0* up to, but not including, the 'size' of the map. Calls 'error' when
 ||| the key is not a 'member' of the map.
 export
-findIndex : GCompare k => k v -> DMap k f -> Int
+findIndex : DOrd k => k v -> DMap k f -> Int
 findIndex k t
   = case lookupIndex k t of
       Nothing  => error "DMap.findIndex: element is not in the map"
@@ -808,53 +816,53 @@ updateMaxWithKey func = go
 ||| the keys in `map1` are smaller than `k` and the keys in `map2` larger than `k`.
 ||| Any key equal to `k` is found in neither `map1` nor `map2`.
 export
-split : (impl : GCompare k) => k v -> DMap k f -> (DMap k f, DMap k f)
+split : (impl : DOrd k) => k v -> DMap k f -> (DMap k f, DMap k f)
 split key = go
   where
     go : DMap k f -> (DMap k f, DMap k f)
     go Tip              = (Tip, Tip)
-    go (Bin _ kx x l r) = case gcompare key kx @{impl} of
-          GLT => let (lt, gt) = go l in (lt, combine kx x gt r)
-          GGT => let (lt, gt) = go r in (combine kx x l lt, gt)
-          GEQ => (l, r)
+    go (Bin _ kx x l r) = case dcompare key kx @{impl} of
+          DLT => let (lt, gt) = go l in (lt, combine kx x gt r)
+          DGT => let (lt, gt) = go r in (combine kx x l lt, gt)
+          DEQ => (l, r)
 
 ||| *O(log n)*. The expression (`'splitLookup' k map`) splits a map just
 ||| like 'split' but also returns `'lookup' k map`.
 export
-splitLookup : (impl : GCompare k) => k v -> DMap k f -> (DMap k f, Maybe (f v), DMap k f)
+splitLookup : (impl : DOrd k) => k v -> DMap k f -> (DMap k f, Maybe (f v), DMap k f)
 splitLookup key = go
   where
     go : DMap k f -> (DMap k f, Maybe (f v), DMap k f)
     go Tip              = (Tip, Nothing, Tip)
-    go (Bin _ kx x l r) = case gcompare key kx @{impl} of
-      GLT => let (lt, z, gt) = go l in (lt, z, combine kx x gt r)
-      GGT => let (lt, z, gt) = go r in (combine kx x l lt, z, gt)
-      GEQ => (l, Just x, r)
+    go (Bin _ kx x l r) = case dcompare key kx @{impl} of
+      DLT => let (lt, z, gt) = go l in (lt, z, combine kx x gt r)
+      DGT => let (lt, z, gt) = go r in (combine kx x l lt, z, gt)
+      DEQ => (l, Just x, r)
 
 ||| *O(log n)*. The expression (`'splitMember' k map`) splits a map just
 ||| like 'split' but also returns `'member' k map`.
 private
-splitMember : (impl : GCompare k) => k v -> DMap k f -> (DMap k f, Bool, DMap k f)
+splitMember : (impl : DOrd k) => k v -> DMap k f -> (DMap k f, Bool, DMap k f)
 splitMember key = go
   where
     go : DMap k f -> (DMap k f, Bool, DMap k f)
     go Tip              = (Tip, False, Tip)
-    go (Bin _ kx x l r) = case gcompare key kx @{impl} of
-      GLT => let (lt, z, gt) = go l in (lt, z, combine kx x gt r)
-      GGT => let (lt, z, gt) = go r in (combine kx x l lt, z, gt)
-      GEQ => (l, True, r)
+    go (Bin _ kx x l r) = case dcompare key kx @{impl} of
+      DLT => let (lt, z, gt) = go l in (lt, z, combine kx x gt r)
+      DGT => let (lt, z, gt) = go r in (combine kx x l lt, z, gt)
+      DEQ => (l, True, r)
 
 ||| *O(log n)*.
 private
-splitLookupWithKey : (impl : GCompare k) => k v -> DMap k f -> (DMap k f, Maybe (k v, f v), DMap k f)
+splitLookupWithKey : (impl : DOrd k) => k v -> DMap k f -> (DMap k f, Maybe (k v, f v), DMap k f)
 splitLookupWithKey key = go
   where
     go : DMap k f -> (DMap k f, Maybe (k v, f v), DMap k f)
     go Tip              = (Tip, Nothing, Tip)
-    go (Bin _ kx x l r) = case gcompare key kx @{impl} of
-      GLT => let (lt, z, gt) = go l in (lt, z, combine kx x gt r)
-      GGT => let (lt, z, gt) = go r in (combine kx x l lt, z, gt)
-      GEQ => (l, Just (kx, x), r)
+    go (Bin _ kx x l r) = case dcompare key kx @{impl} of
+      DLT => let (lt, z, gt) = go l in (lt, z, combine kx x gt r)
+      DGT => let (lt, z, gt) = go r in (combine kx x l lt, z, gt)
+      DEQ => (l, Just (kx, x), r)
 
 {--------------------------------------------------------------------
   Union.
@@ -865,7 +873,7 @@ splitLookupWithKey key = go
 ||| It prefers `t1` when duplicate keys are encountered,
 ||| i.e. (`'union' == 'unionWith' 'const'`).
 export
-union : GCompare k => DMap k f -> DMap k f -> DMap k f
+union : DOrd k => DMap k f -> DMap k f -> DMap k f
 union t1 Tip  = t1
 union t1 (Bin _ kx x Tip Tip) = insertR kx x t1
 union Tip t2  = t2
@@ -876,7 +884,7 @@ union t1@(Bin _ k1 x1 l1 r1) t2 = case split k1 t2 of
 ||| The union of a list of maps:
 |||   (`'unions' == 'Prelude.foldl' 'union' 'empty'`).
 export
-unions : GCompare k => List (DMap k f) -> DMap k f
+unions : DOrd k => List (DMap k f) -> DMap k f
 unions ts = foldl union empty ts
 
 {--------------------------------------------------------------------
@@ -884,11 +892,11 @@ unions ts = foldl union empty ts
 --------------------------------------------------------------------}
 
 export
-implementation (GCompare k) => Semigroup (DMap k f) where
+implementation (DOrd k) => Semigroup (DMap k f) where
   (<+>) = union
 
 export
-implementation (GCompare k) => Monoid (DMap k f) where
+implementation (DOrd k) => Monoid (DMap k f) where
     neutral = empty
 
 {--------------------------------------------------------------------
@@ -898,7 +906,7 @@ implementation (GCompare k) => Monoid (DMap k f) where
 ||| *O(n+m)*.
 ||| Union with a combining function.
 export
-unionWithKey : GCompare k => ({0 v : a} -> k v -> f v -> f v -> f v) -> DMap k f -> DMap k f -> DMap k f
+unionWithKey : DOrd k => ({0 v : a} -> k v -> f v -> f v -> f v) -> DMap k f -> DMap k f -> DMap k f
 unionWithKey _ t1 Tip  = t1
 unionWithKey _ Tip t2  = t2
 unionWithKey f (Bin _ k1 x1 l1 r1) t2 = case splitLookup k1 t2 of
@@ -912,7 +920,7 @@ unionWithKey f (Bin _ k1 x1 l1 r1) t2 = case splitLookup k1 t2 of
 ||| The union of a list of maps, with a combining operation:
 |||   (`'unionsWithKey' f == 'Prelude.foldl' ('unionWithKey' f) 'empty'`).
 export
-unionsWithKey : GCompare k => ({0 v : a} -> k v -> f v -> f v -> f v) -> List (DMap k f) -> DMap k f
+unionsWithKey : DOrd k => ({0 v : a} -> k v -> f v -> f v -> f v) -> List (DMap k f) -> DMap k f
 unionsWithKey f ts = foldl (unionWithKey f) empty ts
 
 {--------------------------------------------------------------------
@@ -922,7 +930,7 @@ unionsWithKey f ts = foldl (unionWithKey f) empty ts
 ||| *O(m * log (n/m + 1)), m <= n*. Difference of two maps.
 ||| Return elements of the first map not existing in the second map.
 export
-difference : GCompare k => DMap k f -> DMap k g -> DMap k f
+difference : DOrd k => DMap k f -> DMap k g -> DMap k f
 difference Tip _   = Tip
 difference t1 Tip  = t1
 difference t1 (Bin _ k2 x2 l2 r2) = case split k2 t1 of
@@ -937,7 +945,7 @@ difference t1 (Bin _ k2 x2 l2 r2) = case split k2 t1 of
 ||| If it returns 'Nothing', the element is discarded (proper set difference). If
 ||| it returns (`'Just' y`), the element is updated with a new value `y`.
 export
-differenceWithKey : (impl : GCompare k)
+differenceWithKey : (impl : DOrd k)
                  => ({0 v : a} -> k v -> f v -> g v -> Maybe (f v))
                  -> DMap k f
                  -> DMap k g
@@ -963,7 +971,7 @@ differenceWithKey f (Bin _ k1 x1 l1 r1) t2 = case splitLookup k1 t2 of
 ||| Return data in the first map for the keys existing in both maps.
 ||| (`'intersection' m1 m2 == 'intersectionWith' 'const' m1 m2`).
 export
-intersection : GCompare k => DMap k f -> DMap k f -> DMap k f
+intersection : DOrd k => DMap k f -> DMap k f -> DMap k f
 intersection Tip _ = Tip
 intersection _ Tip = Tip
 intersection t1@(Bin s1 k1 x1 l1 r1) t2 =
@@ -979,7 +987,7 @@ intersection t1@(Bin s1 k1 x1 l1 r1) t2 =
 
 ||| *O(m * log (n/m + 1), m <= n*. Intersection with a combining function.
 export
-intersectionWithKey : GCompare k => ({0 v : a} -> k v -> f v -> g v -> h v) -> DMap k f -> DMap k g -> DMap k h
+intersectionWithKey : DOrd k => ({0 v : a} -> k v -> f v -> g v -> h v) -> DMap k f -> DMap k g -> DMap k h
 intersectionWithKey _ Tip _ = Tip
 intersectionWithKey _ _ Tip = Tip
 intersectionWithKey f (Bin s1 k1 x1 l1 r1) t2 =
@@ -994,7 +1002,7 @@ intersectionWithKey f (Bin s1 k1 x1 l1 r1) t2 =
   Submap
 --------------------------------------------------------------------}
 private
-submap' : GCompare k => ({0 v : a} -> k v -> k v -> f v -> g v -> Bool) -> DMap k f -> DMap k g -> Bool
+submap' : DOrd k => ({0 v : a} -> k v -> k v -> f v -> g v -> Bool) -> DMap k f -> DMap k g -> Bool
 submap' _ Tip _ = True
 submap' _ _ Tip = False
 submap' f (Bin _ kx x l r) t
@@ -1009,7 +1017,7 @@ submap' f (Bin _ kx x l r) t
 ||| all keys in `t1` are in tree `t2`, and when `f` returns 'True' when
 ||| applied to their respective keys and values.
 export
-isSubmapOfBy : GCompare k => ({0 v : a} -> k v -> k v -> f v -> g v -> Bool) -> DMap k f -> DMap k g -> Bool
+isSubmapOfBy : DOrd k => ({0 v : a} -> k v -> k v -> f v -> g v -> Bool) -> DMap k f -> DMap k g -> Bool
 isSubmapOfBy f t1 t2 = (size t1 <= size t2) && (submap' f t1 t2)
 
 {-
@@ -1030,7 +1038,7 @@ isSubmapOf m1 m2 = isSubmapOfBy (\k _ x0 x1 -> has' @Eq @f k (x0 == x1)) m1 m2
 ||| all keys in `m1` are in `m2`, and when `f` returns 'True' when
 ||| applied to their respective keys and values.
 export
-isProperSubmapOfBy : GCompare k => ({0 v : a} -> k v -> k v -> f v -> g v -> Bool) -> DMap k f -> DMap k g -> Bool
+isProperSubmapOfBy : DOrd k => ({0 v : a} -> k v -> k v -> f v -> g v -> Bool) -> DMap k f -> DMap k g -> Bool
 isProperSubmapOfBy f t1 t2 = (size t1 < size t2) && (submap' f t1 t2)
 
 {-
@@ -1050,7 +1058,7 @@ isProperSubmapOf m1 m2
 --------------------------------------------------------------------}
 ||| *O(n)*. Filter all keys/values that satisfy the predicate.
 export
-filterWithKey : GCompare k => ({0 v : a} -> k v -> f v -> Bool) -> DMap k f -> DMap k f
+filterWithKey : DOrd k => ({0 v : a} -> k v -> f v -> Bool) -> DMap k f -> DMap k f
 filterWithKey p = go
   where
     go : DMap k f -> DMap k f
@@ -1068,7 +1076,7 @@ filterWithKey p = go
 ||| map contains all elements that satisfy the predicate, the second all
 ||| elements that fail the predicate. See also 'split'.
 export
-partitionWithKey : (impl : GCompare k) => ({0 v : a} -> k v -> f v -> Bool) -> DMap k f -> (DMap k f, DMap k f)
+partitionWithKey : (impl : DOrd k) => ({0 v : a} -> k v -> f v -> Bool) -> DMap k f -> (DMap k f, DMap k f)
 partitionWithKey p0 m0 = go p0 m0
   where
     go : ({0 v : a} -> k v -> f v -> Bool) -> DMap k f -> (DMap k f, DMap k f)
@@ -1080,7 +1088,7 @@ partitionWithKey p0 m0 = go p0 m0
                    else (merge l1 r1, combine kx x l2 r2)
 
 ||| *O(n)*. Map keys/values and collect the 'Just' results.
-mapMaybeWithKey : (impl : GCompare k) => ({0 v : a} -> k v -> f v -> Maybe (g v)) -> DMap k f -> DMap k g
+mapMaybeWithKey : (impl : DOrd k) => ({0 v : a} -> k v -> f v -> Maybe (g v)) -> DMap k f -> DMap k g
 mapMaybeWithKey func = go
   where
     go : DMap k f -> DMap k g
@@ -1091,12 +1099,12 @@ mapMaybeWithKey func = go
 
 ||| *O(n)*. Map values and collect the 'Just' results.
 export
-mapMaybe : GCompare k => ({0 v : a} -> f v -> Maybe (g v)) -> DMap k f -> DMap k g
+mapMaybe : DOrd k => ({0 v : a} -> f v -> Maybe (g v)) -> DMap k f -> DMap k g
 mapMaybe f = mapMaybeWithKey (const f)
 
 ||| *O(n)*. Map keys/values and separate the 'Left' and 'Right' results.
 export
-mapEitherWithKey : GCompare k =>
+mapEitherWithKey : DOrd k =>
   ({0 v : a} -> k v -> f v -> Either (g v) (h v)) -> DMap k f -> (DMap k g, DMap k h)
 mapEitherWithKey f0 = go f0
   where
@@ -1144,7 +1152,7 @@ foldlWithKey func = go
 ||| If the list contains more than one value for the same key, the last value
 ||| for the key is retained.
 export
-fromList : GCompare k => List (DSum k f) -> DMap k f
+fromList : DOrd k => List (DSum k f) -> DMap k f
 fromList xs
   = foldl ins empty xs
   where
@@ -1153,7 +1161,7 @@ fromList xs
 
 ||| *O(n*log n)*. Build a map from a list of key/value pairs with a combining function. See also 'fromAscListWithKey'.
 export
-fromListWithKey : GCompare k => ({0 v : a} -> k v -> f v -> f v -> f v) -> List (DSum k f) -> DMap k f
+fromListWithKey : DOrd k => ({0 v : a} -> k v -> f v -> f v -> f v) -> List (DSum k f) -> DMap k f
 fromListWithKey func xs
   = foldl (ins func) empty xs
   where
@@ -1218,12 +1226,12 @@ fromDistinctAscList xs = build const (cast $ length xs) xs
 ||| combining function for equal keys.
 ||| *The precondition (input list is ascending) is not checked.*
 export
-fromAscListWithKey : (impl : GEq k) => ({0 v : a} -> k v -> f v -> f v -> f v) -> List (DSum k f) -> DMap k f
+fromAscListWithKey : (impl : DEq k) => ({0 v : a} -> k v -> f v -> f v -> f v) -> List (DSum k f) -> DMap k f
 fromAscListWithKey func xs = fromDistinctAscList (combineEq func xs)
   where
     combineEq' : ({0 v : a} -> k v -> f v -> f v -> f v) -> DSum k f -> List (DSum k f) -> List (DSum k f)
     combineEq' f z [] = [z]
-    combineEq' f z@(kz :=> zz) (x@(kx :=> xx) :: xs') = case geq kx kz @{impl} of
+    combineEq' f z@(kz :=> zz) (x@(kx :=> xx) :: xs') = case deq kx kz @{impl} of
       Just Refl   => let yy = func kx xx zz in combineEq' f (kx :=> yy) xs'
       Nothing     => z :: combineEq' func x xs'
 
@@ -1238,7 +1246,7 @@ fromAscListWithKey func xs = fromDistinctAscList (combineEq func xs)
 ||| *O(n)*. Build a map from an ascending list in linear time.
 ||| *The precondition (input list is ascending) is not checked.*
 export
-fromAscList : GEq k => List (DSum k f) -> DMap k f
+fromAscList : DEq k => List (DSum k f) -> DMap k f
 fromAscList xs = fromAscListWithKey (\_ => \x => \_ => x) xs
 
 {--------------------------------------------------------------------
@@ -1248,7 +1256,7 @@ fromAscList xs = fromAscListWithKey (\_ => \x => \_ => x) xs
 --------------------------------------------------------------------}
 --implementation (GEq k, Has' Eq k f) => Eq (DMap k f) where
 export
-implementation GEq k => GEq f => Eq (DMap k f) where
+implementation DEq k => DEq f => Eq (DMap k f) where
   t1 == t2 = (size t1 == size t2) && (toAscList t1 == toAscList t2)
 
 
@@ -1382,7 +1390,7 @@ mapAccumRWithKey func = go
 ||| keys to the same new key.  In this case the associated values will be
 ||| combined using `c`.
 export
-mapKeysWith : GCompare k2
+mapKeysWith : DOrd k2
            => ({0 v : a} -> k2 v -> f v -> f v -> f v)
            -> ({0 v : a} -> k1 v -> k2 v) -> DMap k1 f -> DMap k2 f
 mapKeysWith c func = fromListWithKey c . Prelude.map fFirst . toList
@@ -1518,7 +1526,7 @@ showTreeWith showelem hang wide t
 --------------------------------------------------------------------}
 
 private
-ordered : GCompare k => DMap k f -> Bool
+ordered : DOrd k => DMap k f -> Bool
 ordered t
   = bounded (const True) (const True) t
   where
@@ -1528,8 +1536,8 @@ ordered t
           Tip             => True
           Bin _ kx _ l r  => lo (MkSome kx)
                           && hi (MkSome kx)
-                          && bounded lo (\s => (<) @{viaGCompare} s (MkSome kx)) l
-                          && bounded (\s => (>) @{viaGCompare} s (MkSome kx)) hi r
+                          && bounded lo (\s => (<) s (MkSome kx)) l
+                          && bounded (\s => (>) s (MkSome kx)) hi r
 
 ||| Exported only for "Debug.QuickCheck"
 private
@@ -1556,5 +1564,5 @@ validsize t
 
 ||| *O(n)*. Test if the internal map structure is valid.
 export
-valid : GCompare k => DMap k f -> Bool
+valid : DOrd k => DMap k f -> Bool
 valid t = balanced t && ordered t && validsize t

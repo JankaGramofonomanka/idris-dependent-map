@@ -8,3 +8,9 @@ test = "test/dependent-map-test.ipkg"
 type="local"
 path="test"
 ipkg="dependent-map-test.ipkg"
+
+[custom.all.dtypes]
+type   = "github"
+url    = "git@github.com:JankaGramofonomanka/idris-dtypes.git"
+commit = "11dd08baacdf98df28aa6d034bf6ff30976f298d"
+ipkg   = "dtypes.ipkg"
