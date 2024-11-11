@@ -10,8 +10,8 @@ import Tester.Runner
 
 import Data.DMap
 import Data.DSum
-import Data.GEq
-import Data.GCompare
+import Data.DEq
+import Data.DOrd
 
 %language ElabReflection
 
@@ -23,29 +23,29 @@ data K : Nat -> Type where
 V : Nat -> Type
 V n = Vect n Char
 
-unsafeGEQ : GOrdering a b
-unsafeGEQ = believe_me $ the (GOrdering 0 0) GEQ
+unsafeDEQ : DOrdering a b
+unsafeDEQ = believe_me $ the (DOrdering 0 0) DEQ
 
 unsafeBoolToMEq : Bool -> Maybe (a = b)
 unsafeBoolToMEq True = Just (believe_me $ the (0 = 0) Refl)
 unsafeBoolToMEq False = Nothing
 
-unsafeOrderingToGOrdering : Ordering -> GOrdering a b
-unsafeOrderingToGOrdering LT = GLT
-unsafeOrderingToGOrdering EQ = unsafeGEQ
-unsafeOrderingToGOrdering GT = GGT
+unsafeOrderingToGOrdering : Ordering -> DOrdering a b
+unsafeOrderingToGOrdering LT = DLT
+unsafeOrderingToGOrdering EQ = unsafeDEQ
+unsafeOrderingToGOrdering GT = DGT
 
-implementation GEq K where
-  geq (MkK i1 a) (MkK i2 b) = unsafeBoolToMEq ((i1, a) == (i2, b))
+implementation DEq K where
+  deq (MkK i1 a) (MkK i2 b) = unsafeBoolToMEq ((i1, a) == (i2, b))
 
-implementation GEq V where
-  geq xs ys = unsafeBoolToMEq (toList xs == toList ys)
+implementation DEq V where
+  deq xs ys = unsafeBoolToMEq (toList xs == toList ys)
 
-implementation GCompare K where
-  gcompare (MkK i1 a) (MkK i2 b) = unsafeOrderingToGOrdering (compare (i1, a) (i2, b))
+implementation DOrd K where
+  dcompare (MkK i1 a) (MkK i2 b) = unsafeOrderingToGOrdering (compare (i1, a) (i2, b))
 
-implementation GCompare V where
-  gcompare xs ys = unsafeOrderingToGOrdering (compare (toList xs) (toList ys))
+implementation DOrd V where
+  dcompare xs ys = unsafeOrderingToGOrdering (compare (toList xs) (toList ys))
 
 -- TODO get rid of this, define `GShow` etc.
 implementation Show (DSum K V) where
