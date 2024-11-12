@@ -12,5 +12,5 @@ ipkg="dependent-map-test.ipkg"
 [custom.all.dtypes]
 type   = "github"
 url    = "git@github.com:JankaGramofonomanka/idris-dtypes.git"
-commit = "11dd08baacdf98df28aa6d034bf6ff30976f298d"
+commit = "90077b31b434929eab97f9a696dcaf8bc463326e"
 ipkg   = "dtypes.ipkg"
