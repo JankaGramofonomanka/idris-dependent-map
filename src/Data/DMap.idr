@@ -1429,14 +1429,15 @@ mapKeysMonotonic _ Tip = Tip
 mapKeysMonotonic f (Bin sz k x l r) =
     Bin sz (f k) x (mapKeysMonotonic f l) (mapKeysMonotonic f r)
 
-{-
 {--------------------------------------------------------------------
   Ord
 --------------------------------------------------------------------}
 
-instance (GCompare k, Has' Eq k f, Has' Ord k f) => Ord (DMap k f) where
+export
+implementation DOrd k => DOrd f => Ord (DMap k f) where
   compare m1 m2 = compare (toAscList m1) (toAscList m2)
 
+{-
 {--------------------------------------------------------------------
   Read
 --------------------------------------------------------------------}
@@ -1453,23 +1454,9 @@ instance (GCompare k, GRead k, Has' Read k f) => Read (DMap k f) where
 {--------------------------------------------------------------------
   Show
 --------------------------------------------------------------------}
-{-
-instance (GShow k, Has' Show k f) => Show (DMap k f) where
-    showsPrec p m = showParen (p>10)
-        ( showString "fromList "
-        . showsPrec 11 (toList m)
-        )
-
-||| *O(n)*. Show the tree that implements the map. The tree is shown
-||| in a compressed, hanging format. See 'showTreeWith'.
 export
-showTree :: (GShow k, Has' Show k f) => DMap k f -> String
-showTree m
-  = showTreeWith showElem True False m
-  where
-    showElem :: (GShow k, Has' Show k f) => k v -> f v -> String
-    showElem k x  = show (k :=> x)
--}
+implementation DShow k => DShow f => Show (DMap k f) where
+  show m = "fromList " ++ show (toList m)
 
 private
 showWide : Bool -> List (String) -> String -> String
@@ -1530,6 +1517,16 @@ showTreeWith : ({0 v : a} -> k v -> f v -> String) -> Bool -> Bool -> DMap k f -
 showTreeWith showelem hang wide t
   = if hang then (showsTreeHang showelem wide [] t) ""
             else (showsTree showelem wide [] [] t) ""
+
+||| *O(n)*. Show the tree that implements the map. The tree is shown
+||| in a compressed, hanging format. See 'showTreeWith'.
+export
+showTree : DShow k => DShow f => DMap k f -> String
+showTree m
+  = showTreeWith showElem True False m
+  where
+    showElem : k v -> f v -> String
+    showElem kx fx = show (kx :=> fx) {ty = DSum k f}
 
 {--------------------------------------------------------------------
   Assertions
