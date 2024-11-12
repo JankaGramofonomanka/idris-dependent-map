@@ -5,6 +5,8 @@ module Data.DMap
 import Control.Monad.State
 import Data.Maybe
 
+import public Data.DFunctor
+import public Data.DFoldable
 import public Data.DSum
 import public Data.DOrd
 import public Data.DEq
@@ -1143,6 +1145,10 @@ foldlWithKey func = go
     go z Tip              = z
     go z (Bin _ kx x l r) = go (func (go z l) kx x) r
 
+export
+implementation DFoldable (DMap k) where
+  dfoldr f = foldrWithKey (\k => f)
+
 {--------------------------------------------------------------------
   Lists
   use [foldlStrict] to reduce demand on the control-stack
@@ -1291,6 +1297,10 @@ map func = go
     go : DMap k f -> DMap k g
     go Tip = Tip
     go (Bin sx kx x l r) = Bin sx kx (func x) (go l) (go r)
+
+export
+implementation DFunctor (DMap k) where
+  dmap = map
 
 ||| *O(n)*.
 ||| `'ffor' == 'flip' 'map'` except we cannot actually use
