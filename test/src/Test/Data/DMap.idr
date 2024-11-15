@@ -47,13 +47,11 @@ implementation DOrd K where
 implementation DOrd V where
   dcompare xs ys = unsafeOrderingToGOrdering (compare (toList xs) (toList ys))
 
--- TODO get rid of this, define `GShow` etc.
-implementation Show (DSum K V) where
-  show (k :=> v) = show k ++ " :=> " ++ show v
+implementation DShow K where
+  dshow k = show k
 
--- TODO get rid of this, define `Show` for `DMap`
-implementation Show (DMap K V) where
-  show dmap = "fromList " ++ show (toList dmap)
+implementation DShow V where
+  dshow v = show v
 
 -- Test Data
 k00, k10, k20 : K 0
