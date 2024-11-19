@@ -2,7 +2,7 @@ package dependent-map
 version = 0.0.1
 authors = "Jan Serwatka"
 -- maintainers =
--- license =
+license = "BSD-3 Clause"
 brief = "A port of the `dependent-map` package from Hackage"
 -- readme =
 -- homepage =
