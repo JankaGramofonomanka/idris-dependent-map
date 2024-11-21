@@ -27,7 +27,7 @@ and it only mentions the GHC project now. I therefore omit these two copyright
 notices in the license of this project.
 
 The authors of
-[`dependent-map`](https://hackage.haskell.org/package/dependent-map) and state
+[`dependent-map`](https://hackage.haskell.org/package/dependent-map) state
 that they consider their contributions public domain.
 
 The licenses of the original projects can be found in the `original-licenses`
