@@ -417,5 +417,6 @@ export
 main : IO ()
 main = do
   putStrLn "Testing `Data.DMap`"
-  success <- runTests allTests
+  True <- runTests allTests
+        | False => assert_total (idris_crash "tests failed")
   pure ()
