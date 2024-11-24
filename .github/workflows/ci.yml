@@ -1,0 +1,22 @@
+name: CI
+
+on:
+  push:
+    branches: [ "master" ]
+  pull_request:
+    branches: [ "master" ]
+
+jobs:
+  build:
+
+    runs-on: ubuntu-latest
+    container: ghcr.io/stefan-hoeck/idris2-pack:latest
+
+    steps:
+    - uses: actions/checkout@v4
+    - name: Build project
+      run: pack build dependent-map
+    - name: Build test suite
+      run: pack build dependent-map-test
+    - name: Run tests
+      run: pack test dependent-map
