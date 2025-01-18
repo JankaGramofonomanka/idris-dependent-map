@@ -12,6 +12,8 @@ import public Data.DOrd
 import public Data.DEq
 import public Data.Some
 
+import Hedgehog
+
 error : String -> a
 error msg = assert_total $ idris_crash msg
 
@@ -1573,3 +1575,12 @@ validsize t
 export
 valid : DOrd k => DMap k f -> Bool
 valid t = balanced t && ordered t && validsize t
+
+{--------------------------------------------------------------------
+  Arbitrary maps
+--------------------------------------------------------------------}
+
+||| Generates a map using a 'Range' to determine the size.
+export
+genDMap : DOrd k => Hedgehog.Range Nat -> Gen (DSum k v) -> Gen (DMap k v)
+genDMap range gen = fromList <$> list range gen

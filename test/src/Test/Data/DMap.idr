@@ -1,22 +1,44 @@
 module Test.Data.DMap
 
 import Data.List
-import Data.Singleton
 import Data.Vect
 import Derive.Prelude
-
-import Tester
-import Tester.Runner
 
 import Data.DMap
 import Data.DSum
 import Data.DEq
 import Data.DOrd
 
+import Data.SOP
+import Hedgehog
+
+%hide Oh
+%hide Prelude.Range
+%hide Data.List.lookup
+%hide Data.List.union
+
 %language ElabReflection
 
+-- General test utils ---------------------------------------------------------
+0 Test : Type
+Test = (PropertyName, Property)
+
+describe : PropertyName -> PropertyT () -> Test
+describe n p = (n, property p)
+
+export infixl 3 +*>
+public export %tcinline
+(+*>) : Semigroup a => Applicative f => f a -> f a -> f a
+a +*> b = map (<+>) a <*> b
+
+export infixl 3 &&*>
+public export %tcinline
+(&&*>) : Applicative f => f Bool -> f Bool -> f Bool
+a &&*> b = (a +*> b) @{All}
+
+-- key and value definitions + interface implementations ----------------------
 data K : Nat -> Type where
-  MkK : Char -> (n : Nat) -> K n
+  MkK : String -> (n : Nat) -> K n
 
 %runElab derive "K" [Show]
 
@@ -53,370 +75,828 @@ implementation DShow K where
 implementation DShow V where
   dshow v = show v
 
--- Test Data
-k00, k10, k20 : K 0
-ka0 = MkK 'a' 0
-kb0 = MkK 'b' 0
-kc0 = MkK 'c' 0
+implementation [keyWise] Eq (DSum K V) where
+  (k :=> _) == (k' :=> _) = deq' {f = K} k k'
 
-ka1, kb1, kc1 : K 1
-ka1 = MkK 'a' 1
-kb1 = MkK 'b' 1
-kc1 = MkK 'c' 1
+implementation [paramWise] Eq (DSum K V) where
+  (MkK _ n :=> _) == (MkK _ n' :=> _) = n == n'
 
-ka2, kb2, kc2 : K 2
-ka2 = MkK 'a' 2
-kb2 = MkK 'b' 2
-kc2 = MkK 'c' 2
+-- List utils -----------------------------------------------------------------
+||| remove all occurances of an element
+deleteAll : Eq a => a -> List a -> List a
+deleteAll _ []      = []
+deleteAll x (y::ys) = (if x == y then [] else [y]) ++ deleteAll x ys
 
-va0, vb0, vc0 : V 0
-va0 = []
-vb0 = []
-vc0 = []
+export infix 7 \\\
+||| delete all occurances of each element from the right list, in the left list
+(\\\) : Eq a => List a -> List a -> List a
+(\\\) = foldl (flip deleteAll)
 
-va1, vb1, vc1 : V 1
-va1 = ['a']
-vb1 = ['b']
-vc1 = ['c']
+-- TODO this is inefficient
+||| Shuffle elements of a list
+||| Do it by slicing it in a middle and swapping the sublists multiple times
+||| @ ns the indices (moduleo length of the list) at which the list will be sliced
+||| @ xs the shuffeled list
+shuffle : (ns : List Nat) -> (xs : List a) -> List a
+shuffle ns Nil = Nil
+shuffle ns xs = go (length xs) ns xs where
+  go : Nat -> List Nat -> List a -> List a
+  go len Nil xs = xs
+  go len (n :: ns) xs = let
+    pre  = take (n `mod` len) xs
+    post = drop (n `mod` len) xs
+    in go len ns (post ++ pre)
 
-va2, vb2, vc2 : V 2
-va2 = ['a', 'a']
-vb2 = ['b', 'b']
-vc2 = ['c', 'c']
+sortVect : Ord a => Vect n a -> Vect n a
+sortVect xs = believe_me (sort {a} (believe_me xs))
 
-kva0, kvb0, kvc0, kva1, kvb1, kvc1, kva2, kvb2, kvc2 : DSum K V
+||| Slice a list once
+||| n the index at which the list will be sliced
+||| l the list to be sliced
+slice1 : (n : Nat) -> (l : List a) -> (List a, List a)
+slice1 n l = let n' = n `mod` length l in (take n' l, drop n' l)
 
-kva0 = ka0 :=> va0
-kvb0 = kb0 :=> vb0
-kvc0 = kc0 :=> vc0
+||| Slice a list into multiple sublists
+||| @ ns the indices (moduleo length of the list) at which the list will be sliced
+slice : Vect n Nat -> List a -> Vect (S n) (List a)
+slice ns Nil = [] :: map (const []) ns
+slice ns l = go 0 (massage ns) l where
 
-kva1 = ka1 :=> va1
-kvb1 = kb1 :=> vb1
-kvc1 = kc1 :=> vc1
+  ||| Massage the numbers, so that they make sense
+  massage : Vect k Nat -> Vect k Nat
+  massage = sortVect . map (`mod` length l)
 
-kva2 = ka2 :=> va2
-kvb2 = kb2 :=> vb2
-kvc2 = kc2 :=> vc2
+  go : Nat -> Vect m Nat -> List a -> Vect (S m) (List a)
+  go prevN Nil l = [l]
+  go prevN (n :: ns) l = let
+    (pre, post) = slice1 (n `minus` prevN) l
+    -- we can slice the right sublist, because `n :: ns` is sorted
+    in pre :: go n ns post
 
-allPairs : List (DSum K V)
-allPairs = [kva0, kvb0, kvc0, kva1, kvb1, kvc1, kva2, kvb2, kvc2]
+-- Property utils -------------------------------------------------------------
+||| Compare elements of maps
+||| Used to compare maps without using the `Eq` implementation
+sameElems : DMap K V -> DMap K V -> PropertyT ()
+sameElems dmap dmap' = toList dmap === toList dmap'
 
-||| Assert that the elements of the list are exactly the elements of the map
-||| @ elems the list
-||| @ dmap  the map
-assertElems : (elems : List (DSum K V)) -> (dmap : DMap K V) -> TestFunc ()
-assertElems elems dmap = assertEq (sort elems) (sort $ toList dmap)
+-- Generators -----------------------------------------------------------------
+defaultRange : Range Nat
+defaultRange = linear 0 100
+
+genParam : Gen Nat
+genParam = nat (linear 0 10)
+
+genNat : Gen Nat
+genNat = nat (constant 0 100)
+
+genK : (n : Nat) -> Gen (K n)
+genK n = (\s => MkK s n) <$> string defaultRange alphaNum
+
+genSomeK : Gen (Some K)
+genSomeK = do
+  [s, n] <- np [string defaultRange alphaNum, genParam]
+  pure (MkSome $ MkK s n)
+
+genV : (n : Nat) -> Gen (V n)
+genV n = vect n alphaNum
+
+genKV : Gen (DSum K V)
+genKV = do
+  n <- genParam
+  (:=>) <$> genK n <*> genV n
+
+||| Generate list of key-value pairs
+genKVs : Gen (List (DSum K V))
+genKVs = list defaultRange genKV
+
+||| Generate unique key-value pairs according to a given `Eq` implementation
+genKVsUnique : Eq (DSum K V) => Gen (List (DSum K V))
+genKVsUnique = nub <$> genKVs
+
+||| Generate a list of key-value pairs, where each key is unique
+genKVsUniqueKeys : Gen (List (DSum K V))
+genKVsUniqueKeys = genKVsUnique @{keyWise}
+
+||| Generate a list of unique key-value pairs
+genKVsUniquePairs : Gen (List (DSum K V))
+genKVsUniquePairs = genKVsUnique
+
+||| Generate a non-empty list of key-value pairs
+genKVsNonEmpty : Gen (List (DSum K V))
+genKVsNonEmpty = toList <$> list1 defaultRange genKV
+
+||| Generate a non-empty list of key-value pairs that are unique according to a
+||| given `Eq` implementation
+genKVsUniqueNonEmpty : (impl : Eq (DSum K V)) => Gen (List1 (DSum K V))
+genKVsUniqueNonEmpty = do
+  kv ::: kvs <- list1 defaultRange genKV
+  let kvs' = (nub kvs @{impl} \\ [kv]) @{impl}
+  pure (kv ::: kvs')
+
+||| Generate a non-empty list of key-value pairs, where each key is unique
+genKVsUniqueKeysNonEmpty : Gen (List1 (DSum K V))
+genKVsUniqueKeysNonEmpty = genKVsUniqueNonEmpty @{keyWise}
+
+||| Generate a non-empty list of unique key-value pairs
+genKVsUniquePairsNonEmpty : Gen (List1 (DSum K V))
+genKVsUniquePairsNonEmpty = genKVsUniqueNonEmpty
+
+||| Generate a list of key-value pairs and slice it into a given number of sublists
+||| @ n the number of sublists
+genKVsDisjoint : (n : Nat) -> Gen (List (DSum K V)) -> Gen (Vect n (List (DSum K V)))
+genKVsDisjoint Z gen = pure []
+genKVsDisjoint (S n) gen = do
+  [kvs, ns] <- np [gen, vect n genNat]
+  pure (slice ns kvs)
+
+||| Generate a given number of lists of key-value pairs, disjoint key-wise
+genKVsConsistentDisjoint : (n : Nat) -> Gen (Vect n (List (DSum K V)))
+genKVsConsistentDisjoint n = genKVsDisjoint n genKVsUniqueKeys
+
+||| Generate two lists of key-value pairs that are potentially overlapping, but
+||| consistent, that is, when a key is in both lists, the value paired with it
+||| is the same
+genKVsConsistentOverlapping : Gen (Vect 2 (List (DSum K V)))
+genKVsConsistentOverlapping = do
+  [common, kvs1, kvs2] <- genKVsConsistentDisjoint 3
+  pure [common ++ kvs1, common ++ kvs2]
+
+||| Generate a dependent map
+genDMap : Gen (DMap K V)
+genDMap = DMap.genDMap defaultRange genKV
+
+||| Generate two maps that are overlapping, but consistent,
+||| that is, when a key is in both maps, the value paired with it is the same
+genDMapsConsistent : Gen (Vect 2 (DMap K V))
+genDMapsConsistent = map fromList <$> genKVsConsistentOverlapping
+
+||| Generate a given number of disjoint maps
+genDMapsConsistentDisjoint : (n : Nat) -> Gen (Vect n (DMap K V))
+genDMapsConsistentDisjoint n = map fromList <$> genKVsConsistentDisjoint n
+
+-- Tests ----------------------------------------------------------------------
+namespace ToListFromList
+
+  -- This should pretty much ensure that both `toList` and `fromList` work correctly.
+  -- At least that they preserve all information that a map shaould have.
+  preservesInfo : Test
+  preservesInfo
+    = describe "`toList` and `fromList` preserve the information contained in a map"
+    $ do
+      kvs <- forAll genKVs
+      -- reverse `kvs` so that the last key stays in the `nubbed` list
+      DMap.toList (fromList kvs) === sort (nub (reverse kvs) @{keyWise})
+
+  export
+  toListFromListProps : Group
+  toListFromListProps
+    = MkGroup "properties regarding `toList` and `fromList`"
+    $ [ preservesInfo
+      ]
 
 namespace FromList
 
-  fromEmpty : Test
-  fromEmpty
-    = test "make a map from an empty list"
-    $ assertEq empty (the (DMap K V) (fromList []))
+  orderInsensitive : Test
+  orderInsensitive
+    = describe "`fromList` is insensitive to order of lists with unique keys"
+    $ do
+      [kvs, ns] <- forAll $ np [genKVsUniqueKeys, list defaultRange genNat]
+      DMap.fromList kvs `sameElems` fromList (shuffle ns kvs)
 
-  fromSingleton : Test
-  fromSingleton
-    = test "make a map from singleton list"
-    $ assertEq (singleton ka0 va0) (fromList [kva0])
+  precedence : Test
+  precedence
+    = describe "test precedence of list elements"
+    $ do
+      n <- forAll genParam
+      [k, v1, v2, kvs1, kvs2, kvs3] <- forAll $ np [genK n, genV n, genV n, genKVs, genKVs, genKVs]
 
-  fromAllPairs : Test
-  fromAllPairs
-    = test "make a map from a multi-element list"
-    $ assertElems allPairs (fromList allPairs)
+      -- TODO is this overengineered?
+      let lhs, rhs : DMap K V
+          lhs = DMap.fromList $ kvs1 ++ [k :=> v1] ++ kvs2 ++ [k :=> v2] ++ kvs3
+          rhs = DMap.fromList $ kvs1               ++ kvs2 ++ [k :=> v2] ++ kvs3
+
+      lhs `sameElems` rhs
 
   export
-  tests : List Test
-  tests = [fromEmpty, fromSingleton, fromAllPairs]
+  fromListProps : Group
+  fromListProps
+    = MkGroup "`fromList` properties"
+    $ [ orderInsensitive
+      , precedence
+      ]
 
 namespace Eq
-  reflexiveEmpty : Test
-  reflexiveEmpty
-    = test "`empty == empty`"
-    $ let
-      dmap : DMap K V
-      dmap = empty
-      in assertEq dmap dmap
+  reflexive : Test
+  reflexive
+    = describe "(==) is reflexive"
+    $ do
+      dmap <- forAll genDMap
+      dmap === dmap
 
-  reflexiveNonEmpty : Test
-  reflexiveNonEmpty
-    = test "`dmap == dmap`"
-    $ let
-      dmap = DMap.fromList allPairs
-      in assertEq dmap dmap
-
-  reversedEqualsItself : Test
-  reversedEqualsItself
-    = test "`fromList l == fromList (reverse l)`"
-    $ assertEq (DMap.fromList allPairs) (fromList $ reverse allPairs)
-
-  emptyNonEmpty : Test
-  emptyNonEmpty
-    = test "`empty /= dmap` where `dmap` is non-empty"
-    $ let dmap = fromList allPairs
-      in assertNotEq DMap.empty dmap
+  commutative : Test
+  commutative
+    = describe "(==) is commutative"
+    $ do
+      [dmap, dmap'] <- forAll $ np [genDMap, genDMap]
+      (dmap == dmap') === (dmap' == dmap)
 
   differentElems : Test
   differentElems
-    = test "maps constructed from different elements are not equal"
-    $ let
-      lhs = DMap.fromList (take 3 allPairs)
-      rhs = DMap.fromList (drop 6 allPairs)
-      in assertNotEq lhs rhs
+    = describe "maps with different elemetns are not equal"
+    $ do
+        [nn, kvs, kvs'] <- forAll $ np [genNat, toList <$> genKVsUniquePairsNonEmpty, genKVs]
+
+        -- build maps to comapre, make sure they are not identical
+        let n = nn `mod` length kvs
+            common = (kvs' \\\ kvs) @{keyWise}
+            lhs = DMap.fromList (take n kvs ++ common)
+            rhs = DMap.fromList (drop n kvs ++ common)
+        classify "no elements are the same" $ common == []
+        classify "(invalid) lhs == rhs"     $ kvs    == []
+
+        lhs /== rhs
 
   export
-  tests : List Test
-  tests
-    = [ reflexiveEmpty
-      , reflexiveNonEmpty
-      , reversedEqualsItself
-      , emptyNonEmpty
+  eqProps : Group
+  eqProps
+    = MkGroup "`Eq` implementation properties"
+    $ [ reflexive
+      , commutative
       , differentElems
       ]
 
-namespace Insert
-  insert1 : Test
-  insert1
-    = test "insert 1 element"
-    $ assertElems [kva0] (insert ka0 va0 empty)
+namespace Lookup
 
-  insert2Different : Test
-  insert2Different
-    = test "insert 2 pairs with different parameter"
-    $ let
-      dmap = insert ka0 va0
-           . insert ka1 va1
-           $ empty
-    in assertElems [kva0, kva1] dmap
+  lookupExistent : Test
+  lookupExistent
+    = describe "lookup of an existent key is successful"
+    $ do
+      [kv@(k :=> _), kvs, kvs'] <- forAll $ np [genKV, genKVs, genKVs]
+      let dmap = DMap.fromList (kvs ++ [kv] ++ kvs)
 
-  insert2Same : Test
-  insert2Same
-    = test "insert 2 pairs with the same parameter"
-    $ let
-      dmap = insert ka0 va0
-           . insert kb0 vb0
-           $ empty
-    in assertElems [kva0, kvb0] dmap
-
-  insertTheSamPairTwice : Test
-  insertTheSamPairTwice
-    = test "insert the same pair twice"
-    $ let
-      dmap = insert ka0 va0
-           . insert ka0 va0
-           $ empty
-    in assertElems [kva0] dmap
-
-  insertTheSameKeyTwice : Test
-  insertTheSameKeyTwice
-    = test "insert 2 pairs with the same key"
-    $ let
-      dmap = insert kb0 va0
-           . insert kb0 vb0
-           $ empty
-    in assertElems [kvb0] dmap
-
-  insertAllPairs : Test
-  insertAllPairs
-    = test "insert multiple pairs"
-    $ let
-      dmap : DMap K V
-      dmap = foldr (\(k :=> v) => insert k v) empty allPairs
-    in assertElems allPairs dmap
+      assert (isJust $ lookup k dmap)
 
   export
-  tests : List Test
-  tests
-    = [ insert1
-      , insert2Different
-      , insert2Same
-      , insertTheSamPairTwice
-      , insertTheSameKeyTwice
-      , insertAllPairs
-      ]
-
-namespace Lookup
-  lookupSingle : Test
-  lookupSingle
-    = test "`lookup` in sinlgetom"
-    $ let
-      dmap : DMap K V
-      dmap = singleton ka1 va1
-    in assertEq (lookup ka1 dmap) (Just va1)
-
-  lookupIn9Elems : Test
-  lookupIn9Elems
-    = test "lookup in a 9-element map"
-    $ let
-      dmap : DMap K V
-      dmap = fromList allPairs
-      in assertEq (lookup kb1 dmap) (Just vb1)
-
-
-  lookupEmpty : Test
-  lookupEmpty
-    = test "lookup in empty map"
-    $ let
-      dmap : DMap K V
-      dmap = empty
-      in assertEq (lookup ka0 dmap) Nothing
-
   lookupNonExistent : Test
   lookupNonExistent
-    = test "lookup a non-existent key"
-    $ let
-      dmap : DMap K V
-      dmap = fromList [kvb0, kvb1, kvb2]
-      in assertEq (lookup ka0 dmap) Nothing
+    = describe "lookup of a non-existent key is unsuccessful"
+    $ do
+      (k :=> v) ::: kvs <- forAll genKVsUniqueKeysNonEmpty
+      lookup k (fromList kvs) === Nothing
 
   export
-  tests : List Test
-  tests
-    = [ lookupSingle
-      , lookupIn9Elems
-      , lookupEmpty
+  lookupProps : Group
+  lookupProps
+    = MkGroup "`lookup` properties"
+    $ [ lookupExistent
       , lookupNonExistent
       ]
 
+namespace Insert
+
+  insert1 : Test
+  insert1
+    = describe "lookup of an inserted element is successful"
+    $ do
+      [kv@(k :=> v), kvs] <- forAll $ np [genKV, genKVs]
+
+      classify "contains `k`"
+        $ any ((==) kv @{keyWise})   kvs
+      classify "contains pairs with the same parameter"
+        $ any ((==) kv @{paramWise}) kvs
+      classify "empty"
+        $ kvs == []
+
+      lookup k (insert k v $ fromList kvs) === Just v
+
+  insert2 : Test
+  insert2
+    = describe "after inserting 2 pairs, lookup of the second is successful"
+    $ do
+      [kv1@(k1 :=> v1), kv2@(k2 :=> v2), dmap] <- forAll $ np [genKV, genKV, genDMap]
+
+      classify "keys are the same" (deq' k1 k2 {f = K})
+
+      lookup k2 (insert k2 v2 . insert k1 v1 $ dmap) === Just v2
+
+  insertTheSamPairTwice : Test
+  insertTheSamPairTwice
+    = describe "inserting a pair the second time is uneffectful"
+    $ do
+      [k :=> v, dmap] <- forAll $ np [genKV, genDMap]
+
+      let dmap'  = insert k v dmap
+      let dmap'' = insert k v dmap'
+
+      dmap' === dmap''
+
+  export
+  insertProps : Group
+  insertProps
+    = MkGroup "`insert` properties"
+    $ [ insert1
+      , insert2
+      , insertTheSamPairTwice
+      ]
+
 namespace Delete
+
   delete1 : Test
   delete1
-    = test "delete 1 element"
-    $ let
-      dmap : DMap K V
-      dmap = fromList [kva0, kvb1, kvc2]
-      in assertElems [kva0, kvb1] (delete kc2 dmap)
-
-  deleteFromEmpty : Test
-  deleteFromEmpty
-    = test "delete from empty map"
-    $ let
-      dmap : DMap K V
-      dmap = empty
-      in assertEq empty (delete kc2 dmap)
+    = describe "lookup of a deleted element is ubsuccesful"
+    $ do
+      [MkSome k, dmap] <- forAll $ np [genSomeK, genDMap]
+      lookup k (delete k dmap) === Nothing
 
   deleteNonExistent : Test
   deleteNonExistent
-    = test "delete a non-existent key"
-    $ let
-      dmap : DMap K V
-      dmap = fromList [kvb0, kvb1, kvb2]
-      in assertEq dmap (delete ka0 dmap)
+    = describe "deletion of a non-existent element is uneffectful"
+    $ do
+      (k :=> v) ::: kvs <- forAll genKVsUniqueKeysNonEmpty
+      let dmap = DMap.fromList kvs
+
+      dmap === delete k dmap
+
+  deleteExistent : Test
+  deleteExistent
+    = describe "test deletion of an existing key"
+    $ do
+      (k :=> v) ::: kvs <- forAll genKVsUniqueKeysNonEmpty
+      let dmap = DMap.fromList kvs
+
+      dmap === delete k (insert k v dmap)
 
   export
-  tests : List Test
-  tests
-    = [ delete1
-      , deleteFromEmpty
+  deleteProps : Group
+  deleteProps
+    = MkGroup "`delete` properties"
+    $ [ delete1
       , deleteNonExistent
+      , deleteExistent
+      ]
+
+namespace Empty
+  emptyToList : Test
+  emptyToList
+    = describe "`empty` converted to a list is the empty list"
+    $ DMap.toList (the (DMap K V) empty) === []
+
+  fromEmpty : Test
+  fromEmpty
+    = describe "`empty` is a map constructed from the empty list"
+    $ the (DMap K V) empty === fromList []
+
+  lookupInEmpty : Test
+  lookupInEmpty
+    = describe "lookup in `empty` is unsuccessful"
+      $ do
+      MkSome k <- forAll genSomeK
+      let dmap = the (DMap K V) empty
+      lookup k dmap === Nothing
+
+  deleteFromEmpty : Test
+  deleteFromEmpty
+    = describe "deletion from `empty` is uneffectful"
+      $ do
+      MkSome k <- forAll genSomeK
+      let dmap = the (DMap K V) empty
+      dmap === (delete k dmap)
+
+  export
+  emptyProps : Group
+  emptyProps
+    = MkGroup "`empty` properties"
+    $ [ emptyToList
+      , fromEmpty
+      , lookupInEmpty
+      , deleteFromEmpty
+      ]
+
+namespace Singleton
+  singletonToList : Test
+  singletonToList
+    = describe "a singleton converted to a list is a singleton list"
+    $ do
+      k :=> v <- forAll genKV
+      DMap.toList (the (DMap K V) (singleton k v)) === [k :=> v]
+
+  fromSingleton : Test
+  fromSingleton
+    = describe "a singleton is a map constructed from a singleton list"
+    $ do
+      kv@(k :=> v) <- forAll genKV
+      singleton k v === fromList [kv]
+
+  lookupInSingleton : Test
+  lookupInSingleton
+    = describe "lookup in a singleton is successful"
+    $ do
+      k :=> v <- forAll genKV
+      let dmap = the (DMap K V) (singleton k v)
+      lookup k dmap === Just v
+
+  insertToEmpty : Test
+  insertToEmpty
+    = describe "inserting to `empty` returns a singleton"
+    $ do
+      k :=> v <- forAll genKV
+      let lhs, rhs : DMap K V
+          lhs = singleton k v
+          rhs = insert k v empty
+      lhs === rhs
+
+  export
+  singletonProps : Group
+  singletonProps
+    = MkGroup "`singleton` properties"
+    $ [ singletonToList
+      , fromSingleton
+      , lookupInSingleton
+      , insertToEmpty
+      ]
+
+namespace Size
+
+  definition : Test
+  definition
+    = describe "test against the definition"
+    $ do
+      xs <- forAll genKVs
+      DMap.size (DMap.fromList xs) === cast {from = Nat, to = Int} (length (nub xs @{keyWise}))
+
+  propDelete : Test
+  propDelete
+    = describe "size change after deletion"
+    $ do
+      [MkSome k, dmap] <- forAll $ np [genSomeK, genDMap]
+
+      classify "key present"     (isJust    $ lookup k dmap)
+      classify "key not present" (isNothing $ lookup k dmap)
+
+      case lookup k dmap of
+        Nothing => size dmap === size (delete k dmap)
+        Just _  => size dmap === size (delete k dmap) + 1
+
+  propInsert : Test
+  propInsert
+    = describe "size change after insertion"
+    $ do
+      [k :=> v, dmap] <- forAll $ np [genKV, genDMap]
+
+      classify "key present"     (isJust    $ lookup k dmap)
+      classify "key not present" (isNothing $ lookup k dmap)
+
+      case lookup k dmap of
+        Nothing => size (insert k v dmap) === size dmap + 1
+        Just _  => size (insert k v dmap) === size dmap
+
+  -- TODO redundant (`propInsertMultiple`), but simpler
+  propInsertTwice : Test
+  propInsertTwice
+    = describe "size change after two insertions under the same key"
+    $ do
+      n <- forAll genParam
+      [k, v1, v2, dmap] <- forAll $ np [genK n, genV n, genV n, genDMap]
+
+      let dmap'  = insert k v1 dmap
+          dmap'' = insert k v2 dmap'
+
+      size dmap' === size dmap''
+
+  propInsertMultiple : Test
+  propInsertMultiple
+    = describe "size change after multiple insertions under the same key"
+    $ do
+      [n, m, dmap] <- forAll $ np [genParam, genNat, genDMap]
+      [k, v :: vs] <- forAll $ np [genK n, vect (S $ S m) (genV n)]
+
+      let dmap'  = insert k v dmap
+          dmap'' = foldr (insert k) dmap' vs
+
+      size dmap' === size dmap''
+
+  export
+  sizeProps : Group
+  sizeProps
+    = MkGroup "`size` properties"
+    $ [ definition
+      , propDelete
+      , propInsert
+      , propInsertTwice
+      , propInsertMultiple
       ]
 
 namespace Union
-  unionOfDisjointMaps : Test
-  unionOfDisjointMaps
-    = test "union of disjoint maps"
-    $ let
-      l1 = take 3 allPairs
-      l2 = drop 3 allPairs
-      in assertElems allPairs (fromList l1 `union` fromList l2)
 
-  unionOfOverlappingMaps : Test
-  unionOfOverlappingMaps
-    = test "union of overlapping maps"
-    $ let
-      l1 = take 6 allPairs
-      l2 = drop 3 allPairs
-      in assertElems allPairs (fromList l1 `union` fromList l2)
+  definition : Test
+  definition
+    = describe "test against the definition"
+    $ do
+      [kvs1, kvs2] <- forAll $ np [genKVs, genKVs]
+      (fromList kvs2 `union` fromList kvs1) === fromList (kvs1 ++ kvs2)
+
+  precedence : Test
+  precedence
+    = describe "union is left-biased"
+    $ do
+      n <- forAll genParam
+      [k, v1, v2, dmap1, dmap2] <- forAll $ np [genK n, genV n, genV n, genDMap, genDMap]
+
+      lookup k (insert k v1 dmap1 `union` insert k v2 dmap2) === Just v1
+
+  unionWithSubmap : Test
+  unionWithSubmap
+    = describe "union with submap uneffectful"
+    $ do
+      [kvs1, kvs2] <- forAll (genKVsConsistentDisjoint 2)
+      let submap   = fromList kvs2
+      let supermap = fromList (kvs1 ++ kvs2)
+      (supermap `union` submap) === supermap
+
+  unionWithOverlapping : Test
+  unionWithOverlapping
+    = describe "test union of overlapping maps"
+    $ do
+      [common, kvs1, kvs2] <- forAll (genKVsConsistentDisjoint 3)
+      let lhs = fromList (common ++ kvs2) `union` fromList (common ++ kvs1)
+          rhs = fromList (common ++ kvs1 ++ kvs2)
+
+      lhs === rhs
+
+  identity : Test
+  identity
+    = describe "x `union` empty == x"
+    $ do
+      a <- forAll genDMap
+      (a `union` empty) === a
+
+  idempotent : Test
+  idempotent
+    = describe "union is idempotent"
+    $ do
+      dmap <- forAll genDMap
+      (dmap `union` dmap) === dmap
+
+  associative : Test
+  associative
+    = describe "union is associative"
+    $ do
+      [a, b, c] <- forAll $ np [genDMap, genDMap, genDMap]
+      ((a `union` b) `union` c) === (a `union` (b `union` c))
+
+  commutative : Test
+  commutative
+    = describe "union is commutative"
+    $ do
+      [dmap1, dmap2] <- forAll genDMapsConsistent
+      (dmap1 `union` dmap2) === (dmap2 `union` dmap1)
 
   export
-  tests : List Test
-  tests = [unionOfDisjointMaps, unionOfOverlappingMaps]
+  unionProps : Group
+  unionProps
+    = MkGroup "`union` properties"
+    $ [ definition
+      , precedence
+      , unionWithSubmap
+      , unionWithOverlapping
+      , identity
+      , idempotent
+      , associative
+      , commutative
+      ]
 
 namespace Difference
 
-  submap : Test
-  submap
-    = test "subtract a submap"
-    $ let
-      dmap    = fromList allPairs
-      subdmap = fromList (take 3 allPairs)
-      in assertElems (drop 3 allPairs) (difference dmap subdmap)
+  definition : Test
+  definition
+    = describe "test against the definition"
+    $ do
+      [kvs1, kvs2] <- forAll $ np [genKVs, genKVs]
+      (fromList kvs1 `difference` fromList kvs2) === fromList ((kvs1 \\\ kvs2) @{keyWise})
 
-  overlapping : Test
-  overlapping
-    = test "subtract an overlapping map"
-    $ let
-      dmap        = fromList (drop 3 allPairs)
-      overlapping = fromList (take 6 allPairs)
-      in assertElems (drop 6 allPairs) (difference dmap overlapping)
+  differenceWithSubmap : Test
+  differenceWithSubmap
+    = describe "test difference with submap"
+    $ do
+      [kvs1, kvs2] <- forAll (genKVsConsistentDisjoint 2)
+      let submap1   = fromList kvs1
+          submap2   = fromList kvs2
+          supermap = fromList (kvs1 ++ kvs2)
+      (supermap `difference` submap1) === submap2
 
-  disjoint : Test
-  disjoint
-    = test "subtract a disjoint map"
-    $ let
-      elems    = drop 6 allPairs
-      dmap     = fromList elems
-      disjoint = fromList (take 3 allPairs)
-      in assertElems elems (difference dmap disjoint)
+  nilpotent : Test
+  nilpotent
+    = describe "x `difference` x == empty"
+    $ do
+      dmap <- forAll genDMap
+      (dmap `difference` dmap) === empty
 
+  identity : Test
+  identity
+    = describe "x `difference` empty == x"
+    $ do
+      dmap <- forAll genDMap
+      (dmap `difference` the (DMap K V) empty) === dmap
+
+  domination : Test
+  domination
+    = describe "empty `difference` x == empty (domination)"
+    $ do
+      dmap <- forAll genDMap
+      (the (DMap K V) empty `difference` dmap) === empty
 
   export
-  tests : List Test
-  tests
-    = [ submap
-      , overlapping
-      , disjoint
+  differenceProps : Group
+  differenceProps
+    = MkGroup "`difference` properties"
+    $ [ definition
+      , differenceWithSubmap
+      , nilpotent
+      , identity
+      , domination
       ]
 
 namespace Intersection
 
-  submap : Test
-  submap
-    = test "intersection of a map with its submap"
-    $ let
-      elems = take 3 allPairs
-      dmap    = fromList allPairs
-      subdmap = fromList elems
-      in assertElems elems (intersection dmap subdmap)
+  definition : Test
+  definition
+    = describe "test against the definition"
+    $ do
+      [kvs1, kvs2] <- forAll $ np [genKVs, genKVs]
+      (fromList kvs1 `intersection` fromList kvs2) === fromList (intersect kvs1 kvs2 @{keyWise})
 
-  overlapping : Test
-  overlapping
-    = test "intersection of overlapping maps"
-    $ let
-      dmap1 = fromList (take 6 allPairs)
-      dmap2 = fromList (drop 3 allPairs)
-      in assertElems (drop 3 $ take 6 allPairs) (intersection dmap1 dmap2)
+  precedence : Test
+  precedence
+    = describe "intersection is left-biased"
+    $ do
+      n <- forAll genParam
+      [k, v1, v2, dmap1, dmap2] <- forAll $ np [genK n, genV n, genV n, genDMap, genDMap]
 
-  disjoint : Test
-  disjoint
-    = test "intersection of disjoint maps"
-    $ let
-      dmap1 = fromList (take 3 allPairs)
-      dmap2 = fromList (drop 6 allPairs)
-      in assertElems [] (intersection dmap1 dmap2)
+      lookup k (insert k v1 dmap1 `intersection` insert k v2 dmap2) === Just v1
+
+  intersectionWithSubmap : Test
+  intersectionWithSubmap
+    = describe "intersection with submap is the submap"
+    $ do
+      [kvs1, kvs2] <- forAll (genKVsConsistentDisjoint 2)
+      let submap   = fromList kvs2
+          supermap = fromList (kvs1 ++ kvs2)
+      (submap `intersection` supermap) === submap
+
+  domination : Test
+  domination
+    = describe "intersection with `empty` is `empty` (domination)"
+    $ do
+      a <- forAll genDMap
+      (a `intersection` empty) === empty
+
+  idempotent : Test
+  idempotent
+    = describe "intersection is idempotent"
+    $ do
+      dmap <- forAll genDMap
+      (dmap `intersection` dmap) === dmap
+
+  associative : Test
+  associative
+    = describe "intersection is associative"
+    $ do
+      [a, b, c] <- forAll $ np [genDMap, genDMap, genDMap]
+      ((a `intersection` b) `intersection` c) === (a `intersection` (b `intersection` c))
+
+  commutative : Test
+  commutative
+    = describe "intersection is commutative"
+    $ do
+      [dmap1, dmap2] <- forAll $ genDMapsConsistent
+      (dmap1 `intersection` dmap2) === (dmap2 `intersection` dmap1)
 
   export
-  tests : List Test
-  tests
-    = [ submap
-      , overlapping
-      , disjoint
+  intersectionProps : Group
+  intersectionProps
+    = MkGroup "`intersection` properties"
+    $ [ definition
+      , precedence
+      , intersectionWithSubmap
+      , domination
+      , idempotent
+      , associative
+      , commutative
       ]
 
-allTests : List Test
-allTests
-   = FromList.tests
-  ++ Eq.tests
-  ++ Insert.tests
-  ++ Lookup.tests
-  ++ Delete.tests
-  ++ Union.tests
-  ++ Difference.tests
-  ++ Intersection.tests
+namespace UnionDifferenceIntersection
+
+  -- I came up with these
+  prop1, prop2, prop3, prop4, prop5, prop6, prop7 : Test
+  prop1
+    = describe "property 1"
+    $ do
+      [a, b] <- forAll $ np [genDMap, genDMap]
+      (a `difference` (a `difference`   b)) === (a `intersection` b)
+
+  prop2
+    = describe "property 2"
+    $ do
+      [a, b] <- forAll $ np [genDMap, genDMap]
+      (a `difference` (a `intersection` b)) === (a `difference`   b)
+
+  prop3
+    = describe "property 3"
+    $ do
+      [a, b] <- forAll $ np [genDMap, genDMap]
+      ((a `difference` (a `intersection` b)) `difference` (a `difference` b)) === empty
+
+  prop4
+    = describe "property 4"
+    $ do
+      [a, b] <- forAll $ np [genDMap, genDMap]
+      ((a `difference` b) `union` (a `intersection` b)) === a
+
+  prop5
+    = describe "property 5"
+    $ do
+      [a, b] <- forAll $ np [genDMap, genDMap]
+      (a `union` (b `difference` a)) === (a `union` b)
+
+  prop6
+    = describe "property 6"
+    $ do
+      [a, b] <- forAll $ np [genDMap, genDMap]
+      let lhs = union a b
+          rhs = ((a `difference` b) `union` (a `intersection` b)) `union` (b `difference` a)
+      lhs === rhs
+
+  prop7
+    = describe "property 7"
+    $ do
+      [a, b] <- forAll $ np [genDMap, genDMap]
+      let lhs = (a `union` b) `difference` (a `intersection` b)
+          rhs = (a `difference` b) `union` (b `difference` a)
+      lhs === rhs
+
+  export
+  lawsICameUpWith : Group
+  lawsICameUpWith
+    = MkGroup "Laws I came up with"
+    $ [ prop1
+      , prop2
+      , prop3
+      , prop4
+      , prop5
+      , prop6
+      , prop7
+      ]
+
+  -- laws from wikipedia
+  distributive1, distributive2 : Test
+  distributive1
+    = describe "distributive 1"
+    $ do
+      [a, b, c] <- forAll $ np [genDMap, genDMap, genDMap]
+      (a `union` (b `intersection` c)) === ((a `union` b) `intersection` (a `union` c))
+
+  distributive2
+    = describe "distributive 2"
+    $ do
+      [a, b, c] <- forAll $ np [genDMap, genDMap, genDMap]
+      (a `intersection` (b `union` c)) === ((a `intersection` b) `union` (a `intersection` c))
+
+  absorption1, absorption2 : Test
+  absorption1
+    = describe "absorption 1"
+    $ do
+      [a, b] <- forAll $ np [genDMap, genDMap]
+      (a `union` (a `intersection` b)) === a
+
+  absorption2
+    = describe "absorption 2"
+    $ do
+      [a, b] <- forAll $ np [genDMap, genDMap]
+      (a `intersection` (a `union` b)) === a
+
+  export
+  wikipediaLaws : Group
+  wikipediaLaws
+    = MkGroup "Laws I found on wikipedia"
+    $ [ distributive1
+      , distributive2
+      , absorption1
+      , absorption2
+      ]
 
 export
-main : IO ()
-main = do
-  putStrLn "Testing `Data.DMap`"
-  True <- runTests allTests
-        | False => assert_total (idris_crash "tests failed")
-  pure ()
+spec : IO Bool
+spec = checkGroup toListFromListProps
+  &&*> checkGroup fromListProps
+  &&*> checkGroup eqProps
+  &&*> checkGroup lookupProps
+  &&*> checkGroup insertProps
+  &&*> checkGroup deleteProps
+  &&*> checkGroup emptyProps
+  &&*> checkGroup singletonProps
+  &&*> checkGroup sizeProps
+  &&*> checkGroup unionProps
+  &&*> checkGroup differenceProps
+  &&*> checkGroup intersectionProps
+  &&*> checkGroup lawsICameUpWith
+  &&*> checkGroup wikipediaLaws

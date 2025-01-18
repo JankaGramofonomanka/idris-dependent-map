@@ -1,5 +1,5 @@
 package dependent-map
-version = 0.1.0
+version = 0.1.1
 authors = "Jan Serwatka"
 -- maintainers =
 license = "BSD-3 Clause"
@@ -15,6 +15,7 @@ langversion >= 0.5.1
 -- packages to add to search path
 depends = base >= 0.5.1
         , dtypes
+        , hedgehog
 
 -- modules to install
 modules = Data.DMap
