@@ -15,9 +15,11 @@ langversion >= 0.5.1
 -- packages to add to search path
 depends = base >= 0.5.1
         , dtypes
+        , hedgehog
 
 -- modules to install
 modules = Data.DMap
+        , Data.DMapGen
 
 -- main file (i.e. file to load at REPL)
 -- main =

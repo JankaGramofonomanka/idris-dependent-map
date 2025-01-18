@@ -13,6 +13,7 @@ depends = base >= 0.5.1
         , contrib
         , tester
         , elab-util
+        , hedgehog
 
 main = Main
 
