@@ -2,9 +2,10 @@
 # Change Log
 All notable changes to this project will be documented in this file.
 
-## Unreleased
+## [0.1.1] - Unreleased
 
 ### Added
+- A dependent map generator (`Data.DMap.genDMap`) for property testing
 
 ### Changed
 
