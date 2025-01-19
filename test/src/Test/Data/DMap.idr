@@ -555,7 +555,34 @@ namespace Intersection
   --    , overlapping
   --    , disjoint
   --    ]
+-}
 
+-- union a b = (a `difference` b) `union` (a `intersection` b) `union` (b `difference` a)
+-- a === (a `difference` b) `union` (a `intersection` b)
+-- a `difference` (a `difference`   b) === (a `intersection` b)
+-- a `difference` (a `intersection` b) === (a `difference`   b)
+-- a `difference` (a `intersection` b) `difference` (a `difference` b) === empty
+
+prop1, prop2, prop3, prop4 : Property
+prop1 = property $ do
+  [a, b] <- forAll $ np [genDMap, genDMap]
+  let lhs = union a b
+      rhs = ((a `difference` b) `union` (a `intersection` b)) `union` (b `difference` a)
+  lhs === rhs
+
+prop2 = property $ do
+  [a, b] <- forAll $np [genDMap, genDMap]
+  (a `difference` (a `difference`   b)) === (a `intersection` b)
+
+prop3 = property $ do
+  [a, b] <- forAll $np [genDMap, genDMap]
+  (a `difference` (a `intersection` b)) === (a `difference`   b)
+
+prop4 = property $ do
+  [a, b] <- forAll $np [genDMap, genDMap]
+  ((a `difference` (a `intersection` b)) `difference` (a `difference` b)) === empty
+
+{-
 allTests : List Test
 --allTests
 --   = FromList.tests
