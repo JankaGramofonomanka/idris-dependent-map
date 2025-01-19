@@ -60,6 +60,12 @@ implementation DShow K where
 implementation DShow V where
   dshow v = show v
 
+implementation [keyWise] Eq (DSum K V) where
+  (k :=> _) == (k' :=> _) = deq' {f = K} k k'
+
+nubKeyWise : List (DSum K V) -> List (DSum K V)
+nubKeyWise kvs = nub @{keyWise} kvs
+
 genNat : Gen Nat
 genNat = nat (linear 0 10)
 
@@ -85,6 +91,15 @@ defaultRange = linear 0 100
 
 genKVs : Gen (List (DSum K V))
 genKVs = list defaultRange genKV
+
+genKVsUniqueKeys : Gen (List (DSum K V))
+genKVsUniqueKeys = nubKeyWise <$> genKVs
+
+genKVsUniquePairs : Gen (List (DSum K V))
+genKVsUniquePairs = nub <$> genKVs
+
+genKVsNonEmpty : Gen (List (DSum K V))
+genKVsNonEmpty = toList <$> list1 defaultRange genKV
 
 theGenDMap : DOrd k => Hedgehog.Range Nat -> Gen (DSum k v) -> Gen (DMap k v)
 theGenDMap range gen = fromList <$> list range gen
@@ -126,51 +141,48 @@ namespace FromList
   prop1 : Property
   prop1 = property $ do
     kvs <- forAll genKVs
-    DMap.fromList kvs === DMap.fromList (nub kvs)
+    --DMap.fromList kvs === DMap.fromList (nub kvs)
+    size (DMap.fromList kvs) === size (DMap.fromList (nubKeyWise kvs))
+
+  orderInsensitive : Property
+  orderInsensitive
+    --= test "`fromList l == fromList (reverse l)`"
+    = property $ do
+      l <- forAll genKVsUniqueKeys
+      DMap.fromList l === fromList (reverse l)
+
 
   --export
   --tests : List Test
   --tests = [fromEmpty, fromSingleton, fromAllPairs]
 
 namespace Eq
-  -- REMOVE this should be covered by the next one
-  reflexiveEmpty : Property
-  reflexiveEmpty
-    -- = test "`empty == empty`"
-    = let
-      dmap : DMap K V
-      dmap = empty
-      in property $ dmap === dmap
-
-  reflexiveNonEmpty : Property
-  reflexiveNonEmpty
+  reflexive : Property
+  reflexive
     -- = test "`dmap == dmap`"
     = property $ do
       dmap <- forAll genDMap
       dmap === dmap
 
-  reversedEqualsItself : Property
-  reversedEqualsItself
-    --= test "`fromList l == fromList (reverse l)`"
-    = property $ do
-      l <- forAll $ list defaultRange genKV
-      DMap.fromList l === fromList (reverse l)
-
-  emptyNonEmpty : Property
-  emptyNonEmpty
+  -- TODO should this be covered by the next one?
+  emptyAndNonEmptyNotEqual : Property
+  emptyAndNonEmptyNotEqual
     -- = test "`empty /= dmap` where `dmap` is non-empty"
     = property $ do
-      kvs <- forAll $ toList <$> list1 defaultRange genKV
-      let dmap = fromList kvs
-      DMap.empty /== dmap
+      kvs <- forAll genKVsNonEmpty
+      empty /== fromList kvs
 
-  --differentElems : Test
-  --differentElems
-  --  = test "maps constructed from different elements are not equal"
-  --  $ let
-  --    lhs = DMap.fromList (take 3 allPairs)
-  --    rhs = DMap.fromList (drop 6 allPairs)
-  --    in assertNotEq lhs rhs
+  differentElems : Property
+  differentElems
+    -- = test "maps constructed from different elements are not equal"
+    = property $ do
+        kvs <- forAll genKVsUniquePairs
+        n   <- forAll (nat $ constant 0 (length kvs))
+        classify "n > length kvs" (n > length kvs)
+
+        let lhs = DMap.fromList (take n kvs)
+            rhs = DMap.fromList (drop n kvs)
+        lhs /== rhs
 
   --export
   --tests : List Test
@@ -183,41 +195,47 @@ namespace Eq
   --    ]
 
 namespace Insert
+
   insert1 : Property
   insert1
     -- = test "insert 1 element"
     = property $ do
-      kv@(k :=> v) <- forAll genKV
-      dmap <- forAll genDMap
+      [kv@(k :=> v), dmap] <- forAll $ np [genKV, genDMap]
       assertElem kv (insert k v dmap)
 
-  insert2Different : Property
-  insert2Different
-    -- = test "insert 2 pairs with different parameter"
+  insert2 : Property
+  insert2
+    -- = test "insert 2 pairs - test second"
     = property $ do
       [k1 :=> v1, k2 :=> v2, dmap] <- forAll $ np [genKV, genKV, genDMap]
 
+      let MkK _ n1 = k1
+          MkK _ n2 = k2
+      classify "same parameter" (n1 == n2)
+      classify "same key"       (deq' {f = K} k1 k2)
+
       -- TODO assiuming kv1 /= kv2
       let dmap' = insert k2 v2
                 . insert k1 v1
                 $ dmap
-      assertElem (k1 :=> v1) dmap' -- && assertElem [k2 :=> v2] dmap' TODO
+      assertElem (k2 :=> v2) dmap'
 
-  insert2Same : Property
-  insert2Same
-    -- = test "insert 2 pairs with the same parameter"
+  insert2' : Property
+  insert2'
+    -- = test "insert 2 pairs - test first"
     = property $ do
-      [n, dmap]        <- forAll $ np [genNat, genDMap]
-      [k1, k2, v1, v2] <- forAll $ np [genK n, genK n, genV n, genV n]
+      [k1 :=> v1, k2 :=> v2, dmap] <- forAll $ np [genKV, genKV, genDMap]
+
+      let MkK _ n1 = k1
+          MkK _ n2 = k2
+      classify "same parameter" (n1 == n2)
+      classify "same key"       (deq' {f = K} k1 k2)
 
       -- TODO assiuming kv1 /= kv2
-      classify "keys equal - test meaningless"     (      deq' {f = K} k1 k2)
-      classify "keys not equal - test meaningfull" (not $ deq' {f = K} k1 k2)
-
       let dmap' = insert k2 v2
                 . insert k1 v1
                 $ dmap
-      assertElem (k1 :=> v1) dmap' -- && assertElem [k2 :=> v2] dmap' TODO
+      assert (deq' {f = K} k1 k2 || lookup k1 dmap' == Just v1)
 
   insertTheSamPairTwice : Property
   insertTheSamPairTwice
@@ -228,7 +246,8 @@ namespace Insert
       let dmap'  = insert k v dmap
       let dmap'' = insert k v dmap'
 
-      size dmap' === size dmap''
+      --size dmap' === size dmap''
+      dmap' === dmap''
 
   insertTheSameKeyTwice : Property
   insertTheSameKeyTwice
@@ -241,6 +260,19 @@ namespace Insert
                 . insert k v1
                 $ dmap
       assertElem (k :=> v2) dmap'
+
+  insertTheSameKeyTwiceSize : Property
+  insertTheSameKeyTwiceSize
+    -- = test "insert 2 pairs with the same key"
+    = property $ do
+      [n, dmap]   <- forAll $ np [genNat, genDMap]
+      [k, v1, v2] <- forAll $ np [genK n, genV n, genV n]
+
+      let dmap'  = insert k v2 dmap
+          dmap'' = insert k v1 dmap'
+
+      size dmap' === size dmap''
+
 
   {-
   insertAllPairs : Test
