@@ -296,40 +296,39 @@ namespace Insert
   --    ]
 
 namespace Lookup
-  lookupSingle : Property
-  lookupSingle
+
+  -- TODO should this be covered by `lookupInAny`?
+  lookupInEmpty : Property
+  lookupInEmpty
+    -- = test "lookup in empty map"
+    = property $ do
+      MkSome k <- forAll genSomeK
+      let dmap = the (DMap K V) empty
+      lookup k dmap === Nothing
+
+  -- TODO should this be covered by `lookupInAny`?
+  lookupInSingleton : Property
+  lookupInSingleton
     -- = test "`lookup` in sinlgetom"
     = property $ do
       k :=> v <- forAll genKV
       let dmap = the (DMap K V) (singleton k v)
       lookup k dmap === Just v
 
-  lookupInMultipleElems : Property
-  lookupInMultipleElems
-    -- = test "lookup in a multi-element map"
+  lookupInAny : Property
+  lookupInAny
+    -- = test "lookup in any map"
     = property $ do
-      [kv, kvs] <- forAll $ np [genKV, list defaultRange genKV]
+      [k :=> v, dmap] <- forAll $ np [genKV, genDMap]
 
-      assertElem kv (fromList kvs)
+      lookup k (insert k v dmap) === Just v
 
-
-  lookupEmpty : Property
-  lookupEmpty
-    -- = test "lookup in empty map"
+  lookupNonExistent : Property
+  lookupNonExistent
+    -- = test "lookup a non-existent key"
     = property $ do
-      n <- forAll genNat
-      k <- forAll (genK n)
-      let dmap = the (DMap K V) empty
-      lookup k dmap === Nothing
-
-  -- TODO assuning k is not in ks
-  --lookupNonExistent : Test
-  --lookupNonExistent
-  --  = test "lookup a non-existent key"
-  --  $ let
-  --    dmap : DMap K V
-  --    dmap = fromList [kvb0, kvb1, kvb2]
-  --    in assertEq (lookup ka0 dmap) Nothing
+      [MkSome k, dmap] <- forAll $ np [genSomeK, genDMap]
+      lookup k (delete k dmap) === Nothing
 
   --export
   --tests : List Test
