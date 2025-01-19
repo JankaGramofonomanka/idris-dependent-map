@@ -340,6 +340,10 @@ namespace Lookup
   --    ]
 
 namespace Delete
+
+  -- TODO this is the same as `Lookup.lookupNonExistent`. What should I do about it?
+  -- Maybe its a mistake to test the insert, delete, lookup functions separately,
+  -- maybe I should treat them as a whole
   delete1 : Property
   delete1
     -- = test "delete 1 element"
@@ -355,15 +359,25 @@ namespace Delete
       let dmap = the (DMap K V) empty
       dmap === (delete k dmap)
 
-  -- TODO assuming k is not in ks
-  --deleteNonExistent : Test
-  --deleteNonExistent
+  deleteNonExistent : Property
+  deleteNonExistent
   --  = test "delete a non-existent key"
-  --  $ let
-  --    dmap : DMap K V
-  --    dmap = fromList [kvb0, kvb1, kvb2]
-  --    in assertEq dmap (delete ka0 dmap)
+    = property $ do
+        [kv@(k :=> v), kvs] <- forAll $ np [genKV, genKVsUniqueKeys]
+        let kvs' = (kvs \\ [kv]) @{keyWise}
+            dmap = DMap.fromList kvs'
 
+        dmap === delete k dmap
+
+  deleteExistent : Property
+  deleteExistent
+  --  = test "delete an existent key"
+    = property $ do
+        [kv@(k :=> v), kvs] <- forAll $ np [genKV, genKVsUniqueKeys]
+        let kvs' = (kvs \\ [kv]) @{keyWise}
+            dmap = DMap.fromList kvs'
+
+        dmap === delete k (insert k v dmap)
   --export
   --tests : List Test
   --tests
