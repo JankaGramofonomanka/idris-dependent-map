@@ -416,6 +416,17 @@ namespace Union
     [k1 :=> v1, k2 :=> v2, dmap] <- forAll $ np [genKV, genKV, genDMap]
     (insert k1 v1 dmap `union` insert k2 v2 dmap) === (insert k1 v1 . insert k2 v2 $ dmap)
 
+  associativity : Property
+  associativity = property $ do
+    [a, b, c] <- forAll $ np [genDMap, genDMap, genDMap]
+    ((a `union` b) `union` c) === (a `union` (b `union` c))
+
+  identity : Property
+  identity = property $ do
+    a <- forAll genDMap
+    (a `union` empty) === a
+
+
 {-
   -- TODO assuming disjoint
   unionOfDisjointMaps : Test
@@ -522,6 +533,11 @@ namespace Intersection
 
     (insert k v1 dmap `intersection` insert k v2 dmap) === insert k v1 dmap
 
+  associativity : Property
+  associativity = property $ do
+    [a, b, c] <- forAll $ np [genDMap, genDMap, genDMap]
+    ((a `intersection` b) `intersection` c) === (a `intersection` (b `intersection` c))
+
 {-
   submap : Test
   submap
@@ -571,16 +587,34 @@ prop1 = property $ do
   lhs === rhs
 
 prop2 = property $ do
-  [a, b] <- forAll $np [genDMap, genDMap]
+  [a, b] <- forAll $ np [genDMap, genDMap]
   (a `difference` (a `difference`   b)) === (a `intersection` b)
 
 prop3 = property $ do
-  [a, b] <- forAll $np [genDMap, genDMap]
+  [a, b] <- forAll $ np [genDMap, genDMap]
   (a `difference` (a `intersection` b)) === (a `difference`   b)
 
 prop4 = property $ do
-  [a, b] <- forAll $np [genDMap, genDMap]
+  [a, b] <- forAll $ np [genDMap, genDMap]
   ((a `difference` (a `intersection` b)) `difference` (a `difference` b)) === empty
+
+distributive1, distributive2 : Property
+distributive1 = property $ do
+    [a, b, c] <- forAll $ np [genDMap, genDMap, genDMap]
+    (a `union` (b `intersection` c)) === ((a `union` b) `intersection` (a `union` c))
+
+distributive2 = property $ do
+    [a, b, c] <- forAll $ np [genDMap, genDMap, genDMap]
+    (a `intersection` (b `union` c)) === ((a `intersection` b) `union` (a `intersection` c))
+
+absorption1, absorption2 : Property
+absorption1 = property $ do
+    [a, b] <- forAll $ np [genDMap, genDMap]
+    (a `union` (a `intersection` b)) === a
+
+absorption2 = property $ do
+    [a, b] <- forAll $ np [genDMap, genDMap]
+    (a `intersection` (a `union` b)) === a
 
 {-
 allTests : List Test
