@@ -214,12 +214,17 @@ namespace Eq
   differentElems
     -- = test "maps constructed from different elements are not equal"
     = property $ do
-        kvs <- forAll genKVsUniquePairs
-        n   <- forAll (nat $ constant 0 (length kvs))
-        classify "n > length kvs" (n > length kvs)
+        [kvs, kvs'] <- forAll $ np [nub <$> genKVsNonEmpty, genKVs]
+        n           <- forAll (nat $ constant 0 (length kvs))
 
-        let lhs = DMap.fromList (take n kvs)
-            rhs = DMap.fromList (drop n kvs)
+        let common = (kvs' \\ kvs) @{keyWise}
+            lhs = DMap.fromList (take n kvs ++ common)
+            rhs = DMap.fromList (drop n kvs ++ common)
+
+        classify "n > length kvs"           $ n > length kvs
+        classify "lhs == rhs"               $ kvs    == []
+        classify "no elements are the same" $ common == []
+
         lhs /== rhs
 
   --export
