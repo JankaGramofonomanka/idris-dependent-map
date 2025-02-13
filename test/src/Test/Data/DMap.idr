@@ -138,7 +138,7 @@ namespace ToList
   prop1 : Property
   prop1 = property $ do
     kvs <- forAll genKVs
-    DMap.toList (fromList kvs) === nubKeyWise kvs
+    DMap.toList (fromList kvs) === sort (nubKeyWise kvs)
 
   emptyToList : Property
   emptyToList = property $ DMap.toList (the (DMap K V) empty) === []
@@ -184,6 +184,7 @@ namespace FromList
     n <- forAll genNat
     [k, v1, v2, kvs1, kvs2, kvs3] <- forAll $ np [genK n, genV n, genV n, genKVs, genKVs, genKVs]
 
+    -- TODO is this overengineered?
     let lhs, rhs : DMap K V
         lhs = DMap.fromList $ kvs1 ++ [k :=> v1] ++ kvs2 ++ [k :=> v2] ++ kvs3 --[k :=> v1, k :=> v2]
         rhs = DMap.fromList $ kvs1               ++ kvs2 ++ [k :=> v2] ++ kvs3 --[k :=> v2]
@@ -237,9 +238,6 @@ namespace Eq
   --    , differentElems
   --    ]
 
-
-implicitly : (impl : a) => a
-implicitly = impl
 
 namespace Insert
 
@@ -336,8 +334,9 @@ namespace Lookup
   lookupNonExistent
     -- = test "lookup a non-existent key"
     = property $ do
-      [MkSome k, dmap] <- forAll $ np [genSomeK, genDMap]
-      lookup k (delete k dmap) === Nothing
+      (k :=> v) :: kvs <- forAll (nubKeyWise <$> genKVsNonEmpty)
+        | Nil => assert_total $ idris_crash "impossible: `nubKeyWise <$> genKVsNonEmpty` generates a `Nil`"
+      lookup k (fromList kvs) === Nothing
 
   --export
   --tests : List Test
@@ -350,15 +349,19 @@ namespace Lookup
 
 namespace Delete
 
+  -- NOT TRUE, see comment below
   -- TODO this is the same as `Lookup.lookupNonExistent`. What should I do about it?
   -- Maybe its a mistake to test the insert, delete, lookup functions separately,
   -- maybe I should treat them as a whole
+  --
+  -- Now that I rewrote `lookupNonExistent` to not use `delete` the above is no
+  -- longer true but the reflexion is still valid
   delete1 : Property
   delete1
     -- = test "delete 1 element"
     = property $ do
         [MkSome k, dmap] <- forAll $ np [genSomeK, genDMap]
-        assertNotElem k (delete k dmap)
+        lookup k (delete k dmap) === Nothing
 
   deleteFromEmpty : Property
   deleteFromEmpty
