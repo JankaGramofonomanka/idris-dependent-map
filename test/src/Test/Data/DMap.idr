@@ -72,15 +72,18 @@ implementation [paramWise] Eq (DSum K V) where
 nubKeyWise : List (DSum K V) -> List (DSum K V)
 nubKeyWise kvs = nub @{keyWise} kvs
 
+genParam : Gen Nat
+genParam = nat (linear 0 10)
+
 genNat : Gen Nat
-genNat = nat (linear 0 10)
+genNat = nat (constant 0 100)
 
 genK : (n : Nat) -> Gen (K n)
 genK n = (\ch => MkK ch n) <$> alphaNum
 
 genSomeK : Gen (Some K)
 genSomeK = do
-  n <- genNat
+  n <- genParam
   k <- genK n
   pure (MkSome k)
 
@@ -89,7 +92,7 @@ genV n = vect n alphaNum
 
 genKV : Gen (DSum K V)
 genKV = do
-  n <- genNat
+  n <- genParam
   (:=>) <$> genK n <*> genV n
 
 defaultRange : Range Nat
@@ -106,6 +109,12 @@ genKVsUniquePairs = nub <$> genKVs
 
 genKVsNonEmpty : Gen (List (DSum K V))
 genKVsNonEmpty = toList <$> list1 defaultRange genKV
+
+genKVsUniqueKeysNonEmpty : Gen (List1 (DSum K V))
+genKVsUniqueKeysNonEmpty = do
+  kv ::: kvs <- list1 defaultRange genKV
+  let kvs' = (nub @{keyWise} kvs \\ [kv]) @{keyWise}
+  pure (kv ::: kvs)
 
 theGenDMap : DOrd k => Hedgehog.Range Nat -> Gen (DSum k v) -> Gen (DMap k v)
 theGenDMap range gen = fromList <$> list range gen
@@ -143,28 +152,8 @@ namespace ToList
     kvs <- forAll genKVs
     DMap.toList (fromList kvs) === sort (nubKeyWise kvs)
 
-  -- TODO given the above, this is more of a test of the `empty` operator
-  emptyToList : Property
-  emptyToList = property $ DMap.toList (the (DMap K V) empty) === []
-
-  -- TODO given the above, this is more of a test of the `singleton` operator
-  singletonToList : Property
-  singletonToList = property $ do
-    k :=> v <- forAll genKV
-    DMap.toList (the (DMap K V) (singleton k v)) === [k :=> v]
-
 -- TODO given `ToList.prop1`, is this entire namespace irrelevant?
 namespace FromList
-
-  fromEmpty : Property
-  fromEmpty = property $ the (DMap K V) empty `sameElems` fromList []
-  --  = test "make a map from an empty list"
-
-  fromSingleton : Property
-  fromSingleton = property $ do
-    --  = test "make a map from singleton list"
-    kv@(k :=> v) <- forAll genKV
-    singleton k v `sameElems` fromList [kv]
 
   fromMultiple : Property
   fromMultiple = property $ do
@@ -187,7 +176,7 @@ namespace FromList
 
   precedence : Property
   precedence = property $ do
-    n <- forAll genNat
+    n <- forAll genParam
     [k, v1, v2, kvs1, kvs2, kvs3] <- forAll $ np [genK n, genV n, genV n, genKVs, genKVs, genKVs]
 
     -- TODO is this overengineered?
@@ -209,28 +198,26 @@ namespace Eq
       dmap <- forAll genDMap
       dmap === dmap
 
-  -- TODO should this be covered by the next one?
-  emptyAndNonEmptyNotEqual : Property
-  emptyAndNonEmptyNotEqual
-    -- = test "`empty /= dmap` where `dmap` is non-empty"
+  commutative : Property
+  commutative
     = property $ do
-      kvs <- forAll genKVsNonEmpty
-      empty /== fromList kvs
+      [dmap, dmap'] <- forAll $ np [genDMap, genDMap]
+      (dmap == dmap') === (dmap' == dmap)
 
   differentElems : Property
   differentElems
     -- = test "maps constructed from different elements are not equal"
     = property $ do
-        [kvs, kvs'] <- forAll $ np [nub <$> genKVsNonEmpty, genKVs]
-        n           <- forAll (nat $ constant 0 (length kvs))
+        [nn, kvs, kvs'] <- forAll $ np [genNat, nub <$> genKVsNonEmpty, genKVs]
 
-        let common = (kvs' \\ kvs) @{keyWise}
+        let n = nn `mod` length kvs
+            common = (kvs' \\ kvs) @{keyWise}
             lhs = DMap.fromList (take n kvs ++ common)
             rhs = DMap.fromList (drop n kvs ++ common)
 
-        classify "n > length kvs"           $ n > length kvs
-        classify "lhs == rhs"               $ kvs    == []
         classify "no elements are the same" $ common == []
+        --classify "(invalid) n > length kvs" $ n > length kvs
+        classify "(invalid) lhs == rhs"     $ kvs    == []
 
         lhs /== rhs
 
@@ -278,7 +265,7 @@ namespace Insert
   insertTheSameKeyTwice
     -- = test "insert 2 pairs with the same key"
     = property $ do
-      [n, dmap]   <- forAll $ np [genNat, genDMap]
+      [n, dmap]   <- forAll $ np [genParam, genDMap]
       [k, v1, v2] <- forAll $ np [genK n, genV n, genV n]
 
       let dmap'  = insert k v2 dmap
@@ -310,26 +297,8 @@ namespace Insert
 
 namespace Lookup
 
-  -- TODO should this be covered by `lookupInAny`?
-  lookupInEmpty : Property
-  lookupInEmpty
-    -- = test "lookup in empty map"
-    = property $ do
-      MkSome k <- forAll genSomeK
-      let dmap = the (DMap K V) empty
-      lookup k dmap === Nothing
-
-  -- TODO should this be covered by `lookupInAny`?
-  lookupInSingleton : Property
-  lookupInSingleton
-    -- = test "`lookup` in sinlgetom"
-    = property $ do
-      k :=> v <- forAll genKV
-      let dmap = the (DMap K V) (singleton k v)
-      lookup k dmap === Just v
-
-  lookupInAny : Property
-  lookupInAny
+  lookupExistent : Property
+  lookupExistent
     -- = test "lookup in any map"
     = property $ do
       [k :=> v, dmap] <- forAll $ np [genKV, genDMap]
@@ -340,8 +309,7 @@ namespace Lookup
   lookupNonExistent
     -- = test "lookup a non-existent key"
     = property $ do
-      (k :=> v) :: kvs <- forAll (nubKeyWise <$> genKVsNonEmpty)
-        | Nil => assert_total $ idris_crash "impossible: `nubKeyWise <$> genKVsNonEmpty` generates a `Nil`"
+      (k :=> v) ::: kvs <- forAll genKVsUniqueKeysNonEmpty
       lookup k (fromList kvs) === Nothing
 
   --export
@@ -369,21 +337,12 @@ namespace Delete
         [MkSome k, dmap] <- forAll $ np [genSomeK, genDMap]
         lookup k (delete k dmap) === Nothing
 
-  deleteFromEmpty : Property
-  deleteFromEmpty
-    -- = test "delete from empty map"
-    = property $ do
-      MkSome k <- forAll genSomeK
-      let dmap = the (DMap K V) empty
-      dmap === (delete k dmap)
-
   deleteNonExistent : Property
   deleteNonExistent
   --  = test "delete a non-existent key"
     = property $ do
-        [kv@(k :=> v), kvs] <- forAll $ np [genKV, genKVsUniqueKeys]
-        let kvs' = (kvs \\ [kv]) @{keyWise}
-            dmap = DMap.fromList kvs'
+        (k :=> v) ::: kvs <- forAll genKVsUniqueKeysNonEmpty
+        let dmap = DMap.fromList kvs
 
         dmap === delete k dmap
 
@@ -391,9 +350,8 @@ namespace Delete
   deleteExistent
   --  = test "delete an existent key"
     = property $ do
-        [kv@(k :=> v), kvs] <- forAll $ np [genKV, genKVsUniqueKeys]
-        let kvs' = (kvs \\ [kv]) @{keyWise}
-            dmap = DMap.fromList kvs'
+        (k :=> v) ::: kvs <- forAll genKVsUniqueKeysNonEmpty
+        let dmap = DMap.fromList kvs
 
         dmap === delete k (insert k v dmap)
   --export
@@ -404,6 +362,61 @@ namespace Delete
   --    , deleteNonExistent
   --    ]
 
+namespace Empty
+  emptyToList : Property
+  emptyToList = property $ DMap.toList (the (DMap K V) empty) === []
+
+  fromEmpty : Property
+  fromEmpty
+    = property
+    $ the (DMap K V) empty `sameElems` fromList []
+  --  = test "make a map from an empty list"
+
+  emptyAndNonEmptyNotEqual : Property
+  emptyAndNonEmptyNotEqual
+    -- = test "`empty /= dmap` where `dmap` is non-empty"
+    = property $ do
+      kvs <- forAll genKVsNonEmpty
+      empty /== fromList kvs
+
+  -- TODO should this be covered by `lookupInAny`?
+  lookupInEmpty : Property
+  lookupInEmpty
+    -- = test "lookup in empty map"
+    = property $ do
+      MkSome k <- forAll genSomeK
+      let dmap = the (DMap K V) empty
+      lookup k dmap === Nothing
+
+  deleteFromEmpty : Property
+  deleteFromEmpty
+    -- = test "delete from empty map"
+    = property $ do
+      MkSome k <- forAll genSomeK
+      let dmap = the (DMap K V) empty
+      dmap === (delete k dmap)
+
+namespace Singleton
+  singletonToList : Property
+  singletonToList = property $ do
+    k :=> v <- forAll genKV
+    DMap.toList (the (DMap K V) (singleton k v)) === [k :=> v]
+
+  fromSingleton : Property
+  fromSingleton = property $ do
+    --  = test "make a map from singleton list"
+    kv@(k :=> v) <- forAll genKV
+    singleton k v `sameElems` fromList [kv]
+
+  -- TODO should this be covered by `lookupInAny`?
+  lookupInSingleton : Property
+  lookupInSingleton
+    -- = test "`lookup` in sinlgetom"
+    = property $ do
+      k :=> v <- forAll genKV
+      let dmap = the (DMap K V) (singleton k v)
+      lookup k dmap === Just v
+
 namespace Union
 
   union : Property
@@ -411,14 +424,14 @@ namespace Union
     [kvs1, kvs2] <- forAll $ np [genKVs, genKVs]
     (fromList kvs1 `union` fromList kvs2) === fromList (kvs1 ++ kvs2)
 
-  unionWithItself : Property
-  unionWithItself = property $ do
+  idempotent : Property
+  idempotent = property $ do
     dmap <- forAll genDMap
     (dmap `union` dmap) === dmap
 
   unionPrecedence : Property
   unionPrecedence = property $ do
-    n <- forAll genNat
+    n <- forAll genParam
     [k, v1, v2, dmap1, dmap2] <- forAll $ np [genK n, genV n, genV n, genDMap, genDMap]
 
     assertElem (k :=> v1) (insert k v1 dmap1 `union` insert k v2 dmap2) -- TODO or is it v2?
@@ -476,8 +489,8 @@ namespace Difference
     [kvs1, kvs2] <- forAll $ np [genKVs, genKVs]
     (fromList kvs1 `difference` fromList kvs2) === fromList (kvs1 \\ kvs2)
 
-  differenceBetweenItself : Property
-  differenceBetweenItself = property $ do
+  nilpotent : Property
+  nilpotent = property $ do
     dmap <- forAll genDMap
     (dmap `difference` dmap) === empty
 
@@ -529,13 +542,14 @@ namespace Intersection
     [kvs1, kvs2] <- forAll $ np [genKVs, genKVs]
     (fromList kvs1 `intersection` fromList kvs2) === fromList (kvs1 `intersect` kvs2)
 
-  intersectionReflexive : Property
-  intersectionReflexive = property $ do
+  -- TODO precedence?
+  commutative : Property
+  commutative = property $ do
     [dmap1, dmap2] <- forAll $ np [genDMap, genDMap]
     (dmap1 `intersection` dmap2) === (dmap2 `intersection` dmap1)
 
-  intersectionWithItself : Property
-  intersectionWithItself = property $ do
+  idempotent : Property
+  idempotent = property $ do
     dmap <- forAll genDMap
     (dmap `intersection` dmap) === dmap
 
@@ -546,7 +560,7 @@ namespace Intersection
 
   intersectionPrecedence : Property
   intersectionPrecedence = property $ do
-    n <- forAll genNat
+    n <- forAll genParam
     [k, v1, v2, dmap1, dmap2] <- forAll $ np [genK n, genV n, genV n, genDMap, genDMap]
 
     assertElem (k :=> v1) (insert k v1 dmap1 `intersection` insert k v2 dmap2)
