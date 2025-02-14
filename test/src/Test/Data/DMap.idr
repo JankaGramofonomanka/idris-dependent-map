@@ -135,19 +135,25 @@ sameElems : DMap K V -> DMap K V -> PropertyT ()
 sameElems dmap dmap' = toList dmap === toList dmap'
 
 namespace ToList
+
+  -- This should pretty much ensure that both `toList` and `fromList` work correctly.
+  -- At least that they preserve all information that a map shaould have.
   prop1 : Property
   prop1 = property $ do
     kvs <- forAll genKVs
     DMap.toList (fromList kvs) === sort (nubKeyWise kvs)
 
+  -- TODO given the above, this is more of a test of the `empty` operator
   emptyToList : Property
   emptyToList = property $ DMap.toList (the (DMap K V) empty) === []
 
+  -- TODO given the above, this is more of a test of the `singleton` operator
   singletonToList : Property
   singletonToList = property $ do
     k :=> v <- forAll genKV
     DMap.toList (the (DMap K V) (singleton k v)) === [k :=> v]
 
+-- TODO given `ToList.prop1`, is this entire namespace irrelevant?
 namespace FromList
 
   fromEmpty : Property
