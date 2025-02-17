@@ -20,11 +20,12 @@ import Hedgehog
 %hide Oh
 %hide Prelude.Range
 %hide Data.List.lookup
+%hide Data.List.union
 
 %language ElabReflection
 
 data K : Nat -> Type where
-  MkK : Char -> (n : Nat) -> K n
+  MkK : String -> (n : Nat) -> K n
 
 %runElab derive "K" [Show]
 
@@ -73,6 +74,37 @@ implementation [paramWise] Eq (DSum K V) where
 --nubKeyWise : List (DSum K V) -> List (DSum K V)
 --nubKeyWise kvs = nub kvs @{keyWise}
 
+-- TODO this is inefficient
+shuffle : List Nat -> List a -> List a
+shuffle ns xs = go (length xs) ns xs where
+  go : Nat -> List Nat -> List a -> List a
+  go len Nil xs = xs
+  go len (n :: ns) xs = let
+    pre  = take (n `mod` len) xs
+    post = drop (n `mod` len) xs
+    in go len ns (post ++ pre)
+
+sortVect : Ord a => Vect n a -> Vect n a
+sortVect xs = believe_me (sort {a} (believe_me xs))
+
+slice1 : Nat -> List a -> (List a, List a)
+slice1 n l = let n' = n `mod` length l in (take n' l, drop n' l)
+
+slice : Vect n Nat -> List a -> Vect (S n) (List a)
+slice ns l = go 0 (massage ns) l where
+
+  massage : Vect k Nat -> Vect k Nat
+  massage = sortVect . map (`mod` length l)
+  --massage Vect
+  go : Nat -> Vect m Nat -> List a -> Vect (S m) (List a)
+  go prevN Nil l = [l]
+  go prevN (n :: ns) l = let
+    (pre, post) = slice1 (n `minus` prevN) l
+    in pre :: go n ns post
+
+defaultRange : Range Nat
+defaultRange = linear 0 100
+
 genParam : Gen Nat
 genParam = nat (linear 0 10)
 
@@ -80,7 +112,7 @@ genNat : Gen Nat
 genNat = nat (constant 0 100)
 
 genK : (n : Nat) -> Gen (K n)
-genK n = (\ch => MkK ch n) <$> alphaNum
+genK n = (\ch => MkK ch n) <$> string defaultRange alphaNum
 
 genSomeK : Gen (Some K)
 genSomeK = do
@@ -95,9 +127,6 @@ genKV : Gen (DSum K V)
 genKV = do
   n <- genParam
   (:=>) <$> genK n <*> genV n
-
-defaultRange : Range Nat
-defaultRange = linear 0 100
 
 genKVs : Gen (List (DSum K V))
 genKVs = list defaultRange genKV
@@ -117,24 +146,40 @@ genKVsUniqueKeysNonEmpty = do
   let kvs' = (nub kvs @{keyWise} \\ [kv]) @{keyWise}
   pure (kv ::: kvs)
 
+-- disjoint in the key comparison sense
+genKVsConsistentDisjoint2 : Gen (Vect 2 (List (DSum K V)))
+genKVsConsistentDisjoint2 = do
+  [kvs, n] <- np [genKVsUniqueKeys, genNat]
+  pure (slice [n] kvs)
+
+-- disjoint in the key comparison sense
+genKVsConsistentDisjoint3 : Gen (Vect 3 (List (DSum K V)))
+genKVsConsistentDisjoint3 = do
+  [kvs, n1, n2] <- np [genKVsUniqueKeys, genNat, genNat]
+  pure (slice [n1, n2] kvs)
+
+-- when a key is in both lists, the value is the same
+genKVsConsistentOverlapping2 : Gen (Vect 2 (List (DSum K V)))
+genKVsConsistentOverlapping2 = do
+  [common, kvs1, kvs2] <- genKVsConsistentDisjoint3
+  pure [common ++ kvs1, common ++ kvs2]
+
 theGenDMap : DOrd k => Hedgehog.Range Nat -> Gen (DSum k v) -> Gen (DMap k v)
 theGenDMap range gen = fromList <$> list range gen
 
 genDMap : Gen (DMap K V)
 genDMap = theGenDMap defaultRange genKV
 
+-- when a key is in both maps, the value is the same
+genDMapsConsistentOverlapping2 : Gen (Vect 2 (DMap K V))
+genDMapsConsistentOverlapping2 = map fromList <$> genKVsConsistentOverlapping2
+
+-- disjoint in the key comparison sense
+genDMapsConsistentDisjoint2 : Gen (Vect 2 (DMap K V))
+genDMapsConsistentDisjoint2 = map fromList <$> genKVsConsistentDisjoint2
+
 elemOf : Eq a => Show a => a -> List a -> PropertyT ()
 elemOf x xs = diff x elem xs
-
--- TODO this is inefficient
-shuffle : List Nat -> List a -> List a
-shuffle ns xs = go (length xs) ns xs where
-  go : Nat -> List Nat -> List a -> List a
-  go len Nil xs = xs
-  go len (n :: ns) xs = let
-    pre  = take (n `mod` len) xs
-    post = drop (n `mod` len) xs
-    in go len ns (post ++ pre)
 
 --||| Assert that the elements of the list are exactly the elements of the map
 --||| @ elems the list
@@ -154,7 +199,7 @@ assertNotElem k dmap = lookup k dmap === Nothing
 sameElems : DMap K V -> DMap K V -> PropertyT ()
 sameElems dmap dmap' = toList dmap === toList dmap'
 
-namespace ToList
+namespace ToListFromList
 
   -- This should pretty much ensure that both `toList` and `fromList` work correctly.
   -- At least that they preserve all information that a map shaould have.
@@ -422,17 +467,19 @@ namespace Singleton
           rhs = insert k v empty
       lhs === rhs
 
+namespace Size
+
+  prop1 : Property
+  prop1 = property $ do
+    xs <- forAll genKVs
+    DMap.size (DMap.fromList xs) === cast {from = Nat, to = Int} (length (nub xs @{keyWise}))
+
 namespace Union
 
-  union : Property
-  union = property $ do
+  definition : Property
+  definition = property $ do
     [kvs1, kvs2] <- forAll $ np [genKVs, genKVs]
     (fromList kvs1 `union` fromList kvs2) === fromList (kvs1 ++ kvs2)
-
-  idempotent : Property
-  idempotent = property $ do
-    dmap <- forAll genDMap
-    (dmap `union` dmap) === dmap
 
   unionPrecedence : Property
   unionPrecedence = property $ do
@@ -443,14 +490,23 @@ namespace Union
 
   unionWithSubmap : Property
   unionWithSubmap = property $ do
-    [k :=> v, dmap] <- forAll $ np [genKV, genDMap]
-    let supermap = insert k v dmap
-    (dmap `union` supermap) === supermap
+    [kvs1, kvs2] <- forAll genKVsConsistentDisjoint2
+    let submap   = fromList kvs2
+    let supermap = fromList (kvs1 ++ kvs2)
+    (supermap `union` submap) === supermap
 
   unionWithOverlapping : Property
   unionWithOverlapping = property $ do
-    [k1 :=> v1, k2 :=> v2, dmap] <- forAll $ np [genKV, genKV, genDMap]
-    (insert k1 v1 dmap `union` insert k2 v2 dmap) === (insert k1 v1 . insert k2 v2 $ dmap)
+    --[k1 :=> v1, k2 :=> v2, dmap] <- forAll $ np [genKV, genKV, genDMap]
+    --(insert k1 v1 dmap `union` insert k2 v2 dmap) === (insert k1 v1 . insert k2 v2 $ dmap)
+    --[kvs, kvs', kvs''] <- forAll $ np [genKVs, genKVs, genKVs]
+    --(fromList (kvs ++ kvs'') `union` fromList (kvs ++ kvs')) === fromList (kvs ++ kvs' ++ kvs'')
+    --[kvs, n1, n2] <- forAll $ np [genKVsUniqueKeys, genNat, genNat]
+    --let [common, kvs1, kvs2] = slice [n1, n2] kvs
+    [common, kvs1, kvs2] <- forAll genKVsConsistentDisjoint3
+    (fromList (common ++ kvs2) `union` fromList (common ++ kvs1))
+      ===
+    fromList (common ++ kvs1 ++ kvs2)
 
   associativity : Property
   associativity = property $ do
@@ -462,6 +518,15 @@ namespace Union
     a <- forAll genDMap
     (a `union` empty) === a
 
+  idempotent : Property
+  idempotent = property $ do
+    dmap <- forAll genDMap
+    (dmap `union` dmap) === dmap
+
+  commutative : Property
+  commutative = property $ do
+    [dmap1, dmap2] <- forAll genDMapsConsistentOverlapping2
+    (dmap1 `union` dmap2) === (dmap2 `union` dmap1)
 
 {-
   -- TODO assuming disjoint
@@ -489,8 +554,8 @@ namespace Union
 
 namespace Difference
 
-  difference : Property
-  difference = property $ do
+  definition : Property
+  definition = property $ do
     [kvs1, kvs2] <- forAll $ np [genKVs, genKVs]
     (fromList kvs1 `difference` fromList kvs2) === fromList (kvs1 \\ kvs2)
 
@@ -501,9 +566,11 @@ namespace Difference
 
   differenceWithSubmap : Property
   differenceWithSubmap = property $ do
-    [k :=> v, dmap] <- forAll $ np [genKV, genDMap]
-    let supermap = insert k v dmap
-    (supermap `difference` dmap) === singleton k v
+    [kvs1, kvs2] <- forAll genKVsConsistentDisjoint2
+    let submap1   = fromList kvs1
+        submap2   = fromList kvs2
+        supermap = fromList (kvs1 ++ kvs2)
+    (supermap `difference` submap1) === submap2
 {-
   submap : Test
   submap
@@ -547,10 +614,9 @@ namespace Intersection
     [kvs1, kvs2] <- forAll $ np [genKVs, genKVs]
     (fromList kvs1 `intersection` fromList kvs2) === fromList (kvs1 `intersect` kvs2)
 
-  -- TODO precedence?
   commutative : Property
   commutative = property $ do
-    [dmap1, dmap2] <- forAll $ np [genDMap, genDMap]
+    [dmap1, dmap2] <- forAll $ genDMapsConsistentOverlapping2
     (dmap1 `intersection` dmap2) === (dmap2 `intersection` dmap1)
 
   idempotent : Property
@@ -560,8 +626,10 @@ namespace Intersection
 
   intersectionWithSubmap : Property
   intersectionWithSubmap = property $ do
-    [k :=> v, dmap] <- forAll $ np [genKV, genDMap]
-    (insert k v dmap `intersection` dmap) === dmap
+    [kvs1, kvs2] <- forAll genKVsConsistentDisjoint2
+    let submap   = fromList kvs2
+        supermap = fromList (kvs1 ++ kvs2)
+    (submap `intersection` supermap) === submap
 
   intersectionPrecedence : Property
   intersectionPrecedence = property $ do
@@ -610,55 +678,57 @@ namespace Intersection
   --    ]
 -}
 
-namespace Size
-
-  prop1 : Property
-  prop1 = property $ do
-    xs <- forAll genKVs
-    DMap.size (DMap.fromList xs) === cast (length (nub xs @{keyWise}))
-
 -- union a b = (a `difference` b) `union` (a `intersection` b) `union` (b `difference` a)
 -- a === (a `difference` b) `union` (a `intersection` b)
 -- a `difference` (a `difference`   b) === (a `intersection` b)
 -- a `difference` (a `intersection` b) === (a `difference`   b)
 -- a `difference` (a `intersection` b) `difference` (a `difference` b) === empty
 
-prop1, prop2, prop3, prop4 : Property
-prop1 = property $ do
-  [a, b] <- forAll $ np [genDMap, genDMap]
-  let lhs = union a b
-      rhs = ((a `difference` b) `union` (a `intersection` b)) `union` (b `difference` a)
-  lhs === rhs
-
-prop2 = property $ do
-  [a, b] <- forAll $ np [genDMap, genDMap]
-  (a `difference` (a `difference`   b)) === (a `intersection` b)
-
-prop3 = property $ do
-  [a, b] <- forAll $ np [genDMap, genDMap]
-  (a `difference` (a `intersection` b)) === (a `difference`   b)
-
-prop4 = property $ do
-  [a, b] <- forAll $ np [genDMap, genDMap]
-  ((a `difference` (a `intersection` b)) `difference` (a `difference` b)) === empty
-
-distributive1, distributive2 : Property
-distributive1 = property $ do
-    [a, b, c] <- forAll $ np [genDMap, genDMap, genDMap]
-    (a `union` (b `intersection` c)) === ((a `union` b) `intersection` (a `union` c))
-
-distributive2 = property $ do
-    [a, b, c] <- forAll $ np [genDMap, genDMap, genDMap]
-    (a `intersection` (b `union` c)) === ((a `intersection` b) `union` (a `intersection` c))
-
-absorption1, absorption2 : Property
-absorption1 = property $ do
+namespace UnionDifferenceIntersection
+  prop1, prop2, prop3, prop4, prop5, prop6 : Property
+  prop1 = property $ do
     [a, b] <- forAll $ np [genDMap, genDMap]
-    (a `union` (a `intersection` b)) === a
+    (a `difference` (a `difference`   b)) === (a `intersection` b)
 
-absorption2 = property $ do
+  prop2 = property $ do
     [a, b] <- forAll $ np [genDMap, genDMap]
-    (a `intersection` (a `union` b)) === a
+    (a `difference` (a `intersection` b)) === (a `difference`   b)
+
+  prop3 = property $ do
+    [a, b] <- forAll $ np [genDMap, genDMap]
+    ((a `difference` (a `intersection` b)) `difference` (a `difference` b)) === empty
+
+  prop4 = property $ do
+    [a, b] <- forAll $ np [genDMap, genDMap]
+    ((a `difference` b) `union` (a `intersection` b)) === a
+
+  prop5 = property $ do
+    [a, b] <- forAll $ np [genDMap, genDMap]
+    (a `union` (b `difference` a)) === (a `union` b)
+
+  prop6 = property $ do
+    [a, b] <- forAll $ np [genDMap, genDMap]
+    let lhs = union a b
+        rhs = ((a `difference` b) `union` (a `intersection` b)) `union` (b `difference` a)
+    lhs === rhs
+
+  distributive1, distributive2 : Property
+  distributive1 = property $ do
+      [a, b, c] <- forAll $ np [genDMap, genDMap, genDMap]
+      (a `union` (b `intersection` c)) === ((a `union` b) `intersection` (a `union` c))
+
+  distributive2 = property $ do
+      [a, b, c] <- forAll $ np [genDMap, genDMap, genDMap]
+      (a `intersection` (b `union` c)) === ((a `intersection` b) `union` (a `intersection` c))
+
+  absorption1, absorption2 : Property
+  absorption1 = property $ do
+      [a, b] <- forAll $ np [genDMap, genDMap]
+      (a `union` (a `intersection` b)) === a
+
+  absorption2 = property $ do
+      [a, b] <- forAll $ np [genDMap, genDMap]
+      (a `intersection` (a `union` b)) === a
 
 {-
 allTests : List Test
