@@ -19,6 +19,7 @@ import Hedgehog
 
 %hide Oh
 %hide Prelude.Range
+%hide Data.List.lookup
 
 %language ElabReflection
 
@@ -69,8 +70,8 @@ implementation [keyWise] Eq (DSum K V) where
 implementation [paramWise] Eq (DSum K V) where
   (MkK _ n :=> _) == (MkK _ n' :=> _) = n == n'
 
-nubKeyWise : List (DSum K V) -> List (DSum K V)
-nubKeyWise kvs = nub @{keyWise} kvs
+--nubKeyWise : List (DSum K V) -> List (DSum K V)
+--nubKeyWise kvs = nub kvs @{keyWise}
 
 genParam : Gen Nat
 genParam = nat (linear 0 10)
@@ -102,7 +103,7 @@ genKVs : Gen (List (DSum K V))
 genKVs = list defaultRange genKV
 
 genKVsUniqueKeys : Gen (List (DSum K V))
-genKVsUniqueKeys = nubKeyWise <$> genKVs
+genKVsUniqueKeys = nub @{keyWise} <$> genKVs
 
 genKVsUniquePairs : Gen (List (DSum K V))
 genKVsUniquePairs = nub <$> genKVs
@@ -113,7 +114,7 @@ genKVsNonEmpty = toList <$> list1 defaultRange genKV
 genKVsUniqueKeysNonEmpty : Gen (List1 (DSum K V))
 genKVsUniqueKeysNonEmpty = do
   kv ::: kvs <- list1 defaultRange genKV
-  let kvs' = (nub @{keyWise} kvs \\ [kv]) @{keyWise}
+  let kvs' = (nub kvs @{keyWise} \\ [kv]) @{keyWise}
   pure (kv ::: kvs)
 
 theGenDMap : DOrd k => Hedgehog.Range Nat -> Gen (DSum k v) -> Gen (DMap k v)
@@ -125,11 +126,21 @@ genDMap = theGenDMap defaultRange genKV
 elemOf : Eq a => Show a => a -> List a -> PropertyT ()
 elemOf x xs = diff x elem xs
 
-||| Assert that the elements of the list are exactly the elements of the map
-||| @ elems the list
-||| @ dmap  the map
-assertAllElems : (elems : List (DSum K V)) -> (dmap : DMap K V) -> PropertyT ()
-assertAllElems elems dmap = sort elems === sort (toList dmap)
+-- TODO this is inefficient
+shuffle : List Nat -> List a -> List a
+shuffle ns xs = go (length xs) ns xs where
+  go : Nat -> List Nat -> List a -> List a
+  go len Nil xs = xs
+  go len (n :: ns) xs = let
+    pre  = take (n `mod` len) xs
+    post = drop (n `mod` len) xs
+    in go len ns (post ++ pre)
+
+--||| Assert that the elements of the list are exactly the elements of the map
+--||| @ elems the list
+--||| @ dmap  the map
+--assertAllElems : (elems : List (DSum K V)) -> (dmap : DMap K V) -> PropertyT ()
+--assertAllElems elems dmap = sort elems === sort (toList dmap)
 
 assertElem : (elem : DSum K V) -> (dmap : DMap K V) -> PropertyT ()
 assertElem (k :=> v) dmap = lookup k dmap === Just v
@@ -147,32 +158,19 @@ namespace ToList
 
   -- This should pretty much ensure that both `toList` and `fromList` work correctly.
   -- At least that they preserve all information that a map shaould have.
-  prop1 : Property
-  prop1 = property $ do
+  preservesInfo : Property
+  preservesInfo = property $ do
     kvs <- forAll genKVs
-    DMap.toList (fromList kvs) === sort (nubKeyWise kvs)
+    DMap.toList (fromList kvs) === sort (nub kvs @{keyWise})
 
--- TODO given `ToList.prop1`, is this entire namespace irrelevant?
 namespace FromList
-
-  fromMultiple : Property
-  fromMultiple = property $ do
-    --  = test "make a map from a multi-element list"
-    kvs <- forAll genKVsUniqueKeys
-    assertAllElems kvs (fromList kvs)
-
-  prop1 : Property
-  prop1 = property $ do
-    kvs <- forAll genKVs
-    --DMap.fromList kvs === DMap.fromList (nub kvs)
-    size (DMap.fromList kvs) === size (DMap.fromList (nubKeyWise kvs))
 
   orderInsensitive : Property
   orderInsensitive
-    --= test "`fromList l == fromList (reverse l)`"
+    --= test "`fromList l == fromList (shuffle l)`"
     = property $ do
-      l <- forAll genKVsUniqueKeys
-      DMap.fromList l `sameElems` fromList (reverse l)
+      [kvs, ns] <- forAll $ np [genKVsUniqueKeys, list defaultRange genNat]
+      DMap.fromList kvs `sameElems` fromList (shuffle ns kvs)
 
   precedence : Property
   precedence = property $ do
@@ -297,13 +295,22 @@ namespace Insert
 
 namespace Lookup
 
-  lookupExistent : Property
-  lookupExistent
+  lookupInserted : Property
+  lookupInserted
     -- = test "lookup in any map"
     = property $ do
       [k :=> v, dmap] <- forAll $ np [genKV, genDMap]
 
       lookup k (insert k v dmap) === Just v
+
+  lookupExistent : Property
+  lookupExistent
+    -- = test "lookup in any map"
+    = property $ do
+      [kv@(k :=> _), kvs, kvs'] <- forAll $ np [genKV, genKVs, genKVs]
+      let dmap = DMap.fromList (kvs ++ [kv] ++ kvs)
+
+      assert (isJust $ lookup k dmap)
 
   lookupNonExistent : Property
   lookupNonExistent
@@ -610,7 +617,7 @@ namespace Size
   prop1 : Property
   prop1 = property $ do
     xs <- forAll genKVs
-    DMap.size (DMap.fromList xs) === cast (length (nubKeyWise xs))
+    DMap.size (DMap.fromList xs) === cast (length (nub xs @{keyWise}))
 
 -- union a b = (a `difference` b) `union` (a `intersection` b) `union` (b `difference` a)
 -- a === (a `difference` b) `union` (a `intersection` b)
