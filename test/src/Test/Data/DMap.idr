@@ -131,32 +131,49 @@ genKV = do
 genKVs : Gen (List (DSum K V))
 genKVs = list defaultRange genKV
 
+--genKVsUnique : Eq (DSum K V) => Gen (List (DSum K V))
+--genKVsUnique = nub <$> genKVs
+
 genKVsUniqueKeys : Gen (List (DSum K V))
 genKVsUniqueKeys = nub @{keyWise} <$> genKVs
+--genKVsUniqueKeys = genKVsUnique @{keyWise}
 
 genKVsUniquePairs : Gen (List (DSum K V))
 genKVsUniquePairs = nub <$> genKVs
+--genKVsUniquePairs = genKVsUnique
 
 genKVsNonEmpty : Gen (List (DSum K V))
 genKVsNonEmpty = toList <$> list1 defaultRange genKV
 
-genKVsUniqueKeysNonEmpty : Gen (List1 (DSum K V))
-genKVsUniqueKeysNonEmpty = do
+genKVsUniqueNonEmpty : (impl : Eq (DSum K V)) => Gen (List1 (DSum K V))
+genKVsUniqueNonEmpty = do
   kv ::: kvs <- list1 defaultRange genKV
-  let kvs' = (nub kvs @{keyWise} \\ [kv]) @{keyWise}
+  let kvs' = (nub kvs @{impl} \\ [kv]) @{impl}
   pure (kv ::: kvs)
+
+genKVsUniqueKeysNonEmpty : Gen (List1 (DSum K V))
+genKVsUniqueKeysNonEmpty = genKVsUniqueNonEmpty @{keyWise}
+
+genKVsUniquePairsNonEmpty : Gen (List1 (DSum K V))
+genKVsUniquePairsNonEmpty = genKVsUniqueNonEmpty
+
+genKVsDisjoint2 : Gen (List (DSum K V)) -> Gen (Vect 2 (List (DSum K V)))
+genKVsDisjoint2 gen = do
+  [kvs, n] <- np [gen, genNat]
+  pure (slice [n] kvs)
+
+genKVsDisjoint3 : Gen (List (DSum K V)) -> Gen (Vect 3 (List (DSum K V)))
+genKVsDisjoint3 gen = do
+  [kvs, n1, n2] <- np [gen, genNat, genNat]
+  pure (slice [n1, n2] kvs)
 
 -- disjoint in the key comparison sense
 genKVsConsistentDisjoint2 : Gen (Vect 2 (List (DSum K V)))
-genKVsConsistentDisjoint2 = do
-  [kvs, n] <- np [genKVsUniqueKeys, genNat]
-  pure (slice [n] kvs)
+genKVsConsistentDisjoint2 = genKVsDisjoint2 genKVsUniqueKeys
 
 -- disjoint in the key comparison sense
 genKVsConsistentDisjoint3 : Gen (Vect 3 (List (DSum K V)))
-genKVsConsistentDisjoint3 = do
-  [kvs, n1, n2] <- np [genKVsUniqueKeys, genNat, genNat]
-  pure (slice [n1, n2] kvs)
+genKVsConsistentDisjoint3 = genKVsDisjoint3 genKVsUniqueKeys
 
 -- when a key is in both lists, the value is the same
 genKVsConsistentOverlapping2 : Gen (Vect 2 (List (DSum K V)))
@@ -257,10 +274,14 @@ namespace Eq
             common = (kvs' \\ kvs) @{keyWise}
             lhs = DMap.fromList (take n kvs ++ common)
             rhs = DMap.fromList (drop n kvs ++ common)
+        --[common, kvs1, kvs2] <- forAll $ genKVsDisjoint3 genKVsUniquePairs
+        --let lhs = DMap.fromList (common ++ kvs1)
+        --    rhs = DMap.fromList (common ++ kvs2)
 
         classify "no elements are the same" $ common == []
         --classify "(invalid) n > length kvs" $ n > length kvs
         classify "(invalid) lhs == rhs"     $ kvs    == []
+        --classify "(invalid) lhs == rhs"     $ kvs1   == kvs2
 
         lhs /== rhs
 
@@ -375,13 +396,6 @@ namespace Lookup
 
 namespace Delete
 
-  -- NOT TRUE, see comment below
-  -- TODO this is the same as `Lookup.lookupNonExistent`. What should I do about it?
-  -- Maybe its a mistake to test the insert, delete, lookup functions separately,
-  -- maybe I should treat them as a whole
-  --
-  -- Now that I rewrote `lookupNonExistent` to not use `delete` the above is no
-  -- longer true but the reflexion is still valid
   delete1 : Property
   delete1
     -- = test "delete 1 element"
