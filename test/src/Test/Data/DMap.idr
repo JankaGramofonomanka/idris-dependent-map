@@ -157,28 +157,20 @@ genKVsUniqueKeysNonEmpty = genKVsUniqueNonEmpty @{keyWise}
 genKVsUniquePairsNonEmpty : Gen (List1 (DSum K V))
 genKVsUniquePairsNonEmpty = genKVsUniqueNonEmpty
 
-genKVsDisjoint2 : Gen (List (DSum K V)) -> Gen (Vect 2 (List (DSum K V)))
-genKVsDisjoint2 gen = do
-  [kvs, n] <- np [gen, genNat]
-  pure (slice [n] kvs)
-
-genKVsDisjoint3 : Gen (List (DSum K V)) -> Gen (Vect 3 (List (DSum K V)))
-genKVsDisjoint3 gen = do
-  [kvs, n1, n2] <- np [gen, genNat, genNat]
-  pure (slice [n1, n2] kvs)
+genKVsDisjoint : (n : Nat) -> Gen (List (DSum K V)) -> Gen (Vect n (List (DSum K V)))
+genKVsDisjoint Z gen = pure []
+genKVsDisjoint (S n) gen = do
+  [kvs, ns] <- np [gen, vect n genNat]
+  pure (slice ns kvs)
 
 -- disjoint in the key comparison sense
-genKVsConsistentDisjoint2 : Gen (Vect 2 (List (DSum K V)))
-genKVsConsistentDisjoint2 = genKVsDisjoint2 genKVsUniqueKeys
-
--- disjoint in the key comparison sense
-genKVsConsistentDisjoint3 : Gen (Vect 3 (List (DSum K V)))
-genKVsConsistentDisjoint3 = genKVsDisjoint3 genKVsUniqueKeys
+genKVsConsistentDisjoint : (n : Nat) -> Gen (Vect n (List (DSum K V)))
+genKVsConsistentDisjoint n = genKVsDisjoint n genKVsUniqueKeys
 
 -- when a key is in both lists, the value is the same
-genKVsConsistentOverlapping2 : Gen (Vect 2 (List (DSum K V)))
-genKVsConsistentOverlapping2 = do
-  [common, kvs1, kvs2] <- genKVsConsistentDisjoint3
+genKVsConsistentOverlapping : Gen (Vect 2 (List (DSum K V)))
+genKVsConsistentOverlapping = do
+  [common, kvs1, kvs2] <- genKVsConsistentDisjoint 3
   pure [common ++ kvs1, common ++ kvs2]
 
 theGenDMap : DOrd k => Hedgehog.Range Nat -> Gen (DSum k v) -> Gen (DMap k v)
@@ -188,12 +180,12 @@ genDMap : Gen (DMap K V)
 genDMap = theGenDMap defaultRange genKV
 
 -- when a key is in both maps, the value is the same
-genDMapsConsistentOverlapping2 : Gen (Vect 2 (DMap K V))
-genDMapsConsistentOverlapping2 = map fromList <$> genKVsConsistentOverlapping2
+genDMapsConsistent : Gen (Vect 2 (DMap K V))
+genDMapsConsistent = map fromList <$> genKVsConsistentOverlapping
 
 -- disjoint in the key comparison sense
-genDMapsConsistentDisjoint2 : Gen (Vect 2 (DMap K V))
-genDMapsConsistentDisjoint2 = map fromList <$> genKVsConsistentDisjoint2
+genDMapsConsistentDisjoint : (n : Nat) -> Gen (Vect n (DMap K V))
+genDMapsConsistentDisjoint n = map fromList <$> genKVsConsistentDisjoint n
 
 elemOf : Eq a => Show a => a -> List a -> PropertyT ()
 elemOf x xs = diff x elem xs
@@ -268,7 +260,7 @@ namespace Eq
   differentElems
     -- = test "maps constructed from different elements are not equal"
     = property $ do
-        [nn, kvs, kvs'] <- forAll $ np [genNat, nub <$> genKVsNonEmpty, genKVs]
+        [nn, kvs, kvs'] <- forAll $ np [genNat, toList <$> genKVsUniquePairsNonEmpty, genKVs]
 
         let n = nn `mod` length kvs
             common = (kvs' \\ kvs) @{keyWise}
@@ -504,7 +496,7 @@ namespace Union
 
   unionWithSubmap : Property
   unionWithSubmap = property $ do
-    [kvs1, kvs2] <- forAll genKVsConsistentDisjoint2
+    [kvs1, kvs2] <- forAll (genKVsConsistentDisjoint 2)
     let submap   = fromList kvs2
     let supermap = fromList (kvs1 ++ kvs2)
     (supermap `union` submap) === supermap
@@ -517,7 +509,7 @@ namespace Union
     --(fromList (kvs ++ kvs'') `union` fromList (kvs ++ kvs')) === fromList (kvs ++ kvs' ++ kvs'')
     --[kvs, n1, n2] <- forAll $ np [genKVsUniqueKeys, genNat, genNat]
     --let [common, kvs1, kvs2] = slice [n1, n2] kvs
-    [common, kvs1, kvs2] <- forAll genKVsConsistentDisjoint3
+    [common, kvs1, kvs2] <- forAll (genKVsConsistentDisjoint 3)
     (fromList (common ++ kvs2) `union` fromList (common ++ kvs1))
       ===
     fromList (common ++ kvs1 ++ kvs2)
@@ -539,7 +531,7 @@ namespace Union
 
   commutative : Property
   commutative = property $ do
-    [dmap1, dmap2] <- forAll genDMapsConsistentOverlapping2
+    [dmap1, dmap2] <- forAll genDMapsConsistent
     (dmap1 `union` dmap2) === (dmap2 `union` dmap1)
 
 {-
@@ -580,7 +572,7 @@ namespace Difference
 
   differenceWithSubmap : Property
   differenceWithSubmap = property $ do
-    [kvs1, kvs2] <- forAll genKVsConsistentDisjoint2
+    [kvs1, kvs2] <- forAll (genKVsConsistentDisjoint 2)
     let submap1   = fromList kvs1
         submap2   = fromList kvs2
         supermap = fromList (kvs1 ++ kvs2)
@@ -630,7 +622,7 @@ namespace Intersection
 
   commutative : Property
   commutative = property $ do
-    [dmap1, dmap2] <- forAll $ genDMapsConsistentOverlapping2
+    [dmap1, dmap2] <- forAll $ genDMapsConsistent
     (dmap1 `intersection` dmap2) === (dmap2 `intersection` dmap1)
 
   idempotent : Property
@@ -640,7 +632,7 @@ namespace Intersection
 
   intersectionWithSubmap : Property
   intersectionWithSubmap = property $ do
-    [kvs1, kvs2] <- forAll genKVsConsistentDisjoint2
+    [kvs1, kvs2] <- forAll (genKVsConsistentDisjoint 2)
     let submap   = fromList kvs2
         supermap = fromList (kvs1 ++ kvs2)
     (submap `intersection` supermap) === submap
