@@ -374,19 +374,9 @@ namespace Empty
   emptyToList = property $ DMap.toList (the (DMap K V) empty) === []
 
   fromEmpty : Property
-  fromEmpty
-    = property
-    $ the (DMap K V) empty `sameElems` fromList []
+  fromEmpty = property $ the (DMap K V) empty === fromList []
   --  = test "make a map from an empty list"
 
-  emptyAndNonEmptyNotEqual : Property
-  emptyAndNonEmptyNotEqual
-    -- = test "`empty /= dmap` where `dmap` is non-empty"
-    = property $ do
-      kvs <- forAll genKVsNonEmpty
-      empty /== fromList kvs
-
-  -- TODO should this be covered by `lookupInAny`?
   lookupInEmpty : Property
   lookupInEmpty
     -- = test "lookup in empty map"
@@ -413,9 +403,8 @@ namespace Singleton
   fromSingleton = property $ do
     --  = test "make a map from singleton list"
     kv@(k :=> v) <- forAll genKV
-    singleton k v `sameElems` fromList [kv]
+    singleton k v === fromList [kv]
 
-  -- TODO should this be covered by `lookupInAny`?
   lookupInSingleton : Property
   lookupInSingleton
     -- = test "`lookup` in sinlgetom"
@@ -423,6 +412,15 @@ namespace Singleton
       k :=> v <- forAll genKV
       let dmap = the (DMap K V) (singleton k v)
       lookup k dmap === Just v
+
+  insertToEmpty : Property
+  insertToEmpty
+    = property $ do
+      k :=> v <- forAll genKV
+      let lhs, rhs : DMap K V
+          lhs = singleton k v
+          rhs = insert k v empty
+      lhs === rhs
 
 namespace Union
 
