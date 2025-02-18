@@ -528,8 +528,8 @@ namespace Union
     [kvs1, kvs2] <- forAll $ np [genKVs, genKVs]
     (fromList kvs1 `union` fromList kvs2) === fromList (kvs1 ++ kvs2)
 
-  unionPrecedence : Property
-  unionPrecedence = property $ do
+  precedence : Property
+  precedence = property $ do
     n <- forAll genParam
     [k, v1, v2, dmap1, dmap2] <- forAll $ np [genK n, genV n, genV n, genDMap, genDMap]
 
@@ -555,11 +555,6 @@ namespace Union
       ===
     fromList (common ++ kvs1 ++ kvs2)
 
-  associativity : Property
-  associativity = property $ do
-    [a, b, c] <- forAll $ np [genDMap, genDMap, genDMap]
-    ((a `union` b) `union` c) === (a `union` (b `union` c))
-
   identity : Property
   identity = property $ do
     a <- forAll genDMap
@@ -569,6 +564,11 @@ namespace Union
   idempotent = property $ do
     dmap <- forAll genDMap
     (dmap `union` dmap) === dmap
+
+  associative : Property
+  associative = property $ do
+    [a, b, c] <- forAll $ np [genDMap, genDMap, genDMap]
+    ((a `union` b) `union` c) === (a `union` (b `union` c))
 
   commutative : Property
   commutative = property $ do
@@ -606,11 +606,6 @@ namespace Difference
     [kvs1, kvs2] <- forAll $ np [genKVs, genKVs]
     (fromList kvs1 `difference` fromList kvs2) === fromList (kvs1 \\ kvs2)
 
-  nilpotent : Property
-  nilpotent = property $ do
-    dmap <- forAll genDMap
-    (dmap `difference` dmap) === empty
-
   differenceWithSubmap : Property
   differenceWithSubmap = property $ do
     [kvs1, kvs2] <- forAll (genKVsConsistentDisjoint 2)
@@ -618,6 +613,23 @@ namespace Difference
         submap2   = fromList kvs2
         supermap = fromList (kvs1 ++ kvs2)
     (supermap `difference` submap1) === submap2
+
+  nilpotent : Property
+  nilpotent = property $ do
+    dmap <- forAll genDMap
+    (dmap `difference` dmap) === empty
+
+  identity : Property
+  identity = property $ do
+    dmap <- forAll genDMap
+    (dmap `difference` the (DMap K V) empty) === dmap
+
+  domination : Property
+  domination = property $ do
+    dmap <- forAll genDMap
+    (the (DMap K V) empty `difference` dmap) === empty
+
+
 {-
   submap : Test
   submap
@@ -656,20 +668,17 @@ namespace Difference
 
 namespace Intersection
 
-  intersection : Property
-  intersection = property $ do
+  definition : Property
+  definition = property $ do
     [kvs1, kvs2] <- forAll $ np [genKVs, genKVs]
     (fromList kvs1 `intersection` fromList kvs2) === fromList (kvs1 `intersect` kvs2)
 
-  commutative : Property
-  commutative = property $ do
-    [dmap1, dmap2] <- forAll $ genDMapsConsistent
-    (dmap1 `intersection` dmap2) === (dmap2 `intersection` dmap1)
+  precedence : Property
+  precedence = property $ do
+    n <- forAll genParam
+    [k, v1, v2, dmap1, dmap2] <- forAll $ np [genK n, genV n, genV n, genDMap, genDMap]
 
-  idempotent : Property
-  idempotent = property $ do
-    dmap <- forAll genDMap
-    (dmap `intersection` dmap) === dmap
+    assertElem (k :=> v1) (insert k v1 dmap1 `intersection` insert k v2 dmap2)
 
   intersectionWithSubmap : Property
   intersectionWithSubmap = property $ do
@@ -678,17 +687,25 @@ namespace Intersection
         supermap = fromList (kvs1 ++ kvs2)
     (submap `intersection` supermap) === submap
 
-  intersectionPrecedence : Property
-  intersectionPrecedence = property $ do
-    n <- forAll genParam
-    [k, v1, v2, dmap1, dmap2] <- forAll $ np [genK n, genV n, genV n, genDMap, genDMap]
+  domination : Property
+  domination = property $ do
+    a <- forAll genDMap
+    (a `intersection` empty) === empty
 
-    assertElem (k :=> v1) (insert k v1 dmap1 `intersection` insert k v2 dmap2)
+  idempotent : Property
+  idempotent = property $ do
+    dmap <- forAll genDMap
+    (dmap `intersection` dmap) === dmap
 
-  associativity : Property
-  associativity = property $ do
+  associative : Property
+  associative = property $ do
     [a, b, c] <- forAll $ np [genDMap, genDMap, genDMap]
     ((a `intersection` b) `intersection` c) === (a `intersection` (b `intersection` c))
+
+  commutative : Property
+  commutative = property $ do
+    [dmap1, dmap2] <- forAll $ genDMapsConsistent
+    (dmap1 `intersection` dmap2) === (dmap2 `intersection` dmap1)
 
 {-
   submap : Test
@@ -732,7 +749,9 @@ namespace Intersection
 -- a `difference` (a `intersection` b) `difference` (a `difference` b) === empty
 
 namespace UnionDifferenceIntersection
-  prop1, prop2, prop3, prop4, prop5, prop6 : Property
+
+  -- I came up with these
+  prop1, prop2, prop3, prop4, prop5, prop6, prop7 : Property
   prop1 = property $ do
     [a, b] <- forAll $ np [genDMap, genDMap]
     (a `difference` (a `difference`   b)) === (a `intersection` b)
@@ -759,6 +778,13 @@ namespace UnionDifferenceIntersection
         rhs = ((a `difference` b) `union` (a `intersection` b)) `union` (b `difference` a)
     lhs === rhs
 
+  prop7 = property $ do
+    [a, b] <- forAll $ np [genDMap, genDMap]
+    let lhs = (a `union` b) `difference` (a `intersection` b)
+        rhs = (a `difference` b) `union` (b `difference` a)
+    lhs === rhs
+
+  -- laws from wikipedia
   distributive1, distributive2 : Property
   distributive1 = property $ do
       [a, b, c] <- forAll $ np [genDMap, genDMap, genDMap]
