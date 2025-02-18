@@ -24,6 +24,9 @@ import Hedgehog
 
 %language ElabReflection
 
+describe : PropertyName -> Property -> (PropertyName, Property)
+describe n p = (n, p)
+
 data K : Nat -> Type where
   MkK : String -> (n : Nat) -> K n
 
@@ -216,6 +219,13 @@ namespace ToListFromList
     kvs <- forAll genKVs
     DMap.toList (fromList kvs) === sort (nub kvs @{keyWise})
 
+  export
+  toListFromListProps : Group
+  toListFromListProps
+    = MkGroup "properties regarding `toList` and `fromList`"
+    $ [ describe "`toList` and `fromList` preserve the information contained in a map" preservesInfo
+      ]
+
 namespace FromList
 
   orderInsensitive : Property
@@ -237,6 +247,13 @@ namespace FromList
 
     lhs `sameElems` rhs
 
+  export
+  fromListProps : Group
+  fromListProps
+    = MkGroup "`fromList` properties"
+    $ [ describe "`fromList` is insensitive to order of lists with unique keys" orderInsensitive
+      , describe "test precedence of list elements"                             precedence
+      ]
   --export
   --tests : List Test
   --tests = [fromEmpty, fromSingleton, fromAllPairs]
@@ -276,6 +293,15 @@ namespace Eq
 
         lhs /== rhs
 
+  export
+  eqProps : Group
+  eqProps
+    = MkGroup "`Eq` implementation properties"
+    $ [ describe "(==) is reflexive"                          reflexive
+      , describe "(==) is commutative"                        commutative
+      , describe "maps with different elemetns are not equal" differentElems
+      ]
+
   --export
   --tests : List Test
   --tests
@@ -303,6 +329,14 @@ namespace Lookup
     = property $ do
       (k :=> v) ::: kvs <- forAll genKVsUniqueKeysNonEmpty
       lookup k (fromList kvs) === Nothing
+
+  export
+  lookupProps : Group
+  lookupProps
+    = MkGroup "`lookup` properties"
+    $ [ describe "lookup of an existent key is successful"      lookupExistent
+      , describe "lookup of a non-existent key is unsuccessful" lookupNonExistent
+      ]
 
   --export
   --tests : List Test
@@ -351,6 +385,15 @@ namespace Insert
 
       --size dmap' === size dmap''
       dmap' === dmap''
+
+  export
+  insertProps : Group
+  insertProps
+    = MkGroup "`insert` properties"
+    $ [ describe "lookup of an inserted element is successful"                     insert1
+      , describe "after inserting 2 pairs, lookup of the second key is successful" insert2
+      , describe "inserting a pair the second time is uneffectful"                 insertTheSamPairTwice
+      ]
 
   -- should be covered by `insert2`
   --insertTheSameKeyTwice : Property
@@ -410,6 +453,16 @@ namespace Delete
         let dmap = DMap.fromList kvs
 
         dmap === delete k (insert k v dmap)
+
+  export
+  deleteProps : Group
+  deleteProps
+    = MkGroup "`delete` properties"
+    $ [ describe "lookup of a deleted element is ubsuccesful"        delete1
+      , describe "deletion of a non-existent element is uneffectful" deleteNonExistent
+      , describe "test deletion of an existing key"                  deleteExistent
+      ]
+
   --export
   --tests : List Test
   --tests
@@ -442,6 +495,16 @@ namespace Empty
       let dmap = the (DMap K V) empty
       dmap === (delete k dmap)
 
+  export
+  emptyProps : Group
+  emptyProps
+    = MkGroup "`empty` properties"
+    $ [ describe "empty converted to a list is the empty list"    emptyToList
+      , describe "empty is a map constructed from the empty list" fromEmpty
+      , describe "lookup in empty is unsuccessful"                lookupInEmpty
+      , describe "deletion from empty is uneffectful"             deleteFromEmpty
+      ]
+
 namespace Singleton
   singletonToList : Property
   singletonToList = property $ do
@@ -470,6 +533,16 @@ namespace Singleton
           lhs = singleton k v
           rhs = insert k v empty
       lhs === rhs
+
+  export
+  singletonProps : Group
+  singletonProps
+    = MkGroup "`singleton` properties"
+    $ [ describe "singleton converted to a list is a singleton list"    singletonToList
+      , describe "singleton is a map constructed from a singleton list" fromSingleton
+      , describe "lookup in singleton is successful"                    lookupInSingleton
+      , describe "inserting to empty returns a singleton"               insertToEmpty
+      ]
 
 namespace Size
 
@@ -520,6 +593,17 @@ namespace Size
         dmap'' = foldr (insert k) dmap' vs
 
     size dmap' === size dmap''
+
+  export
+  sizeProps : Group
+  sizeProps
+    = MkGroup "`size` properties"
+    $ [ describe "test against the definition"                           definition
+      , describe "size change after deletion"                            propDelete
+      , describe "size change after insertion"                           propInsert
+      , describe "size change after two insertions to the same key"      propInsertTwice
+      , describe "size change after multiple insertions to the same key" propInsertMultiple
+      ]
 
 namespace Union
 
@@ -575,6 +659,20 @@ namespace Union
     [dmap1, dmap2] <- forAll genDMapsConsistent
     (dmap1 `union` dmap2) === (dmap2 `union` dmap1)
 
+  export
+  unionProps : Group
+  unionProps
+    = MkGroup "`union` properties"
+    $ [ describe "test against the definition"       definition
+      , describe "test precedence"                   precedence
+      , describe "union with submap is the supermap" unionWithSubmap
+      , describe "test union of overlapping maps"    unionWithOverlapping
+      , describe "x `union` empty == x"              identity
+      , describe "union is idempotent"               idempotent
+      , describe "union is associative"              associative
+      , describe "union is commutative"              commutative
+      ]
+
 {-
   -- TODO assuming disjoint
   unionOfDisjointMaps : Test
@@ -629,6 +727,16 @@ namespace Difference
     dmap <- forAll genDMap
     (the (DMap K V) empty `difference` dmap) === empty
 
+  export
+  differenceProps : Group
+  differenceProps
+    = MkGroup "`difference` properties"
+    $ [ describe "test against the definition"                definition
+      , describe "test difference with submap"                differenceWithSubmap
+      , describe "x `difference` x == empty"                  nilpotent
+      , describe "x `difference` empty == x"                  identity
+      , describe "empty `difference` x == empty (domination)" domination
+      ]
 
 {-
   submap : Test
@@ -707,6 +815,19 @@ namespace Intersection
     [dmap1, dmap2] <- forAll $ genDMapsConsistent
     (dmap1 `intersection` dmap2) === (dmap2 `intersection` dmap1)
 
+  export
+  intersectionProps : Group
+  intersectionProps
+    = MkGroup "`intersection` properties"
+    $ [ describe "test against the definition"                   definition
+      , describe "test precedence"                               precedence
+      , describe "intersection with submap is the submap"        intersectionWithSubmap
+      , describe "intersection with empty is empty (domination)" domination
+      , describe "intersection is idempotent"                    idempotent
+      , describe "intersection is associative"                   associative
+      , describe "intersection is commutative"                   commutative
+      ]
+
 {-
   submap : Test
   submap
@@ -784,6 +905,19 @@ namespace UnionDifferenceIntersection
         rhs = (a `difference` b) `union` (b `difference` a)
     lhs === rhs
 
+  export
+  lawsICameUpWith : Group
+  lawsICameUpWith
+    = MkGroup "Laws I came up with"
+    $ [ describe "property 1" prop1
+      , describe "property 2" prop2
+      , describe "property 3" prop3
+      , describe "property 4" prop4
+      , describe "property 5" prop5
+      , describe "property 6" prop6
+      , describe "property 7" prop7
+      ]
+
   -- laws from wikipedia
   distributive1, distributive2 : Property
   distributive1 = property $ do
@@ -802,6 +936,16 @@ namespace UnionDifferenceIntersection
   absorption2 = property $ do
       [a, b] <- forAll $ np [genDMap, genDMap]
       (a `intersection` (a `union` b)) === a
+
+  export
+  wikipediaLaws : Group
+  wikipediaLaws
+    = MkGroup "Laws I found on wikipedia"
+    $ [ describe "distributive 1" distributive1
+      , describe "distributive 2" distributive2
+      , describe "absorption 1"   absorption1
+      , describe "absorption 2"   absorption2
+      ]
 
 {-
 allTests : List Test
@@ -824,3 +968,21 @@ main = do
   pure ()
 
 -}
+
+export
+main : IO ()
+main = checkGroup toListFromListProps
+    *> checkGroup fromListProps
+    *> checkGroup eqProps
+    *> checkGroup lookupProps
+    *> checkGroup insertProps
+    *> checkGroup deleteProps
+    *> checkGroup emptyProps
+    *> checkGroup singletonProps
+    *> checkGroup sizeProps
+    *> checkGroup unionProps
+    *> checkGroup differenceProps
+    *> checkGroup intersectionProps
+    *> checkGroup lawsICameUpWith
+    *> checkGroup wikipediaLaws
+    $> ()
