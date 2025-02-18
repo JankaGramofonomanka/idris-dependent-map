@@ -286,79 +286,7 @@ namespace Eq
   --    , differentElems
   --    ]
 
-
-namespace Insert
-
-  insert1 : Property
-  insert1
-    -- = test "insert 1 element"
-    = property $ do
-      [kv@(k :=> v), kvs] <- forAll $ np [genKV, genKVs]
-
-      classify "contains `k`"
-        $ any ((==) kv @{keyWise})   kvs
-      classify "contains pairs with the same parameter"
-        $ any ((==) kv @{paramWise}) kvs
-      classify "empty"
-        $ kvs == []
-
-      assertElem' kv (insert k v $ fromList kvs)
-
-  insertTheSamPairTwice : Property
-  insertTheSamPairTwice
-    -- = test "insert the same pair twice"
-    = property $ do
-      [k :=> v, dmap] <- forAll $ np [genKV, genDMap]
-
-      let dmap'  = insert k v dmap
-      let dmap'' = insert k v dmap'
-
-      --size dmap' === size dmap''
-      dmap' === dmap''
-
-  insertTheSameKeyTwice : Property
-  insertTheSameKeyTwice
-    -- = test "insert 2 pairs with the same key"
-    = property $ do
-      [n, dmap]   <- forAll $ np [genParam, genDMap]
-      [k, v1, v2] <- forAll $ np [genK n, genV n, genV n]
-
-      let dmap'  = insert k v2 dmap
-          dmap'' = insert k v1 dmap'
-
-      size dmap' === size dmap''
-
-
-  {-
-  insertAllPairs : Test
-  insertAllPairs
-    = test "insert multiple pairs"
-    $ let
-      dmap : DMap K V
-      dmap = foldr (\(k :=> v) => insert k v) empty allPairs
-    in assertAllElems allPairs dmap
-  -}
-
-  --export
-  --tests : List Test
-  --tests
-  --  = [ insert1
-  --    , insert2Different
-  --    , insert2Same
-  --    , insertTheSamPairTwice
-  --    , insertTheSameKeyTwice
-  --    , insertAllPairs
-  --    ]
-
 namespace Lookup
-
-  lookupInserted : Property
-  lookupInserted
-    -- = test "lookup in any map"
-    = property $ do
-      [k :=> v, dmap] <- forAll $ np [genKV, genDMap]
-
-      lookup k (insert k v dmap) === Just v
 
   lookupExistent : Property
   lookupExistent
@@ -383,6 +311,77 @@ namespace Lookup
   --    , lookupIn9Elems
   --    , lookupEmpty
   --    , lookupNonExistent
+  --    ]
+
+namespace Insert
+
+  insert1 : Property
+  insert1
+    -- = test "insert 1 element"
+    = property $ do
+      [kv@(k :=> v), kvs] <- forAll $ np [genKV, genKVs]
+
+      classify "contains `k`"
+        $ any ((==) kv @{keyWise})   kvs
+      classify "contains pairs with the same parameter"
+        $ any ((==) kv @{paramWise}) kvs
+      classify "empty"
+        $ kvs == []
+
+      lookup k (insert k v $ fromList kvs) === Just v
+
+  insert2 : Property
+  insert2
+    -- = test "insert 2 elements"
+    = property $ do
+      [kv1@(k1 :=> v1), kv2@(k2 :=> v2), dmap] <- forAll $ np [genKV, genKV, genDMap]
+
+      classify "keys are the same" (deq' k1 k2 {f = K})
+
+      lookup k2 (insert k2 v2 . insert k1 v1 $ dmap) === Just v2
+
+  insertTheSamPairTwice : Property
+  insertTheSamPairTwice
+    -- = test "insert the same pair twice"
+    = property $ do
+      [k :=> v, dmap] <- forAll $ np [genKV, genDMap]
+
+      let dmap'  = insert k v dmap
+      let dmap'' = insert k v dmap'
+
+      --size dmap' === size dmap''
+      dmap' === dmap''
+
+  -- should be covered by `insert2`
+  --insertTheSameKeyTwice : Property
+  --insertTheSameKeyTwice
+  --  -- = test "insert 2 pairs with the same key"
+  --  = property $ do
+  --    [n, dmap]   <- forAll $ np [genParam, genDMap]
+  --    [k, v1, v2] <- forAll $ np [genK n, genV n, genV n]
+  --
+  --    lookup k (insert k v2 . insert k v1 $ dmap) === Just v2
+
+
+  {-
+  insertAllPairs : Test
+  insertAllPairs
+    = test "insert multiple pairs"
+    $ let
+      dmap : DMap K V
+      dmap = foldr (\(k :=> v) => insert k v) empty allPairs
+    in assertAllElems allPairs dmap
+  -}
+
+  --export
+  --tests : List Test
+  --tests
+  --  = [ insert1
+  --    , insert2Different
+  --    , insert2Same
+  --    , insertTheSamPairTwice
+  --    , insertTheSameKeyTwice
+  --    , insertAllPairs
   --    ]
 
 namespace Delete
@@ -500,6 +499,27 @@ namespace Size
     case lookup k dmap of
       Nothing => size (insert k v dmap) === size dmap + 1
       Just _  => size (insert k v dmap) === size dmap
+
+  -- TODO redundant (`propInsertMultiple`), but simpler
+  propInsertTwice : Property
+  propInsertTwice = property $ do
+    n <- forAll genParam
+    [k, v1, v2, dmap] <- forAll $ np [genK n, genV n, genV n, genDMap]
+
+    let dmap'  = insert k v1 dmap
+        dmap'' = insert k v2 dmap'
+
+    size dmap' === size dmap''
+
+  propInsertMultiple : Property
+  propInsertMultiple = property $ do
+    [n, m, dmap] <- forAll $ np [genParam, genNat, genDMap]
+    [k, v :: vs] <- forAll $ np [genK n, vect (S $ S m) (genV n)]
+
+    let dmap'  = insert k v dmap
+        dmap'' = foldr (insert k) dmap' vs
+
+    size dmap' === size dmap''
 
 namespace Union
 
