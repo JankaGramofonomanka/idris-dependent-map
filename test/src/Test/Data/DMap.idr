@@ -112,13 +112,12 @@ genNat : Gen Nat
 genNat = nat (constant 0 100)
 
 genK : (n : Nat) -> Gen (K n)
-genK n = (\ch => MkK ch n) <$> string defaultRange alphaNum
+genK n = (\s => MkK s n) <$> string defaultRange alphaNum
 
 genSomeK : Gen (Some K)
 genSomeK = do
-  n <- genParam
-  k <- genK n
-  pure (MkSome k)
+  [s, n] <- np [string defaultRange alphaNum, genParam]
+  pure (MkSome $ MkK s n)
 
 genV : (n : Nat) -> Gen (V n)
 genV n = vect n alphaNum
@@ -475,10 +474,32 @@ namespace Singleton
 
 namespace Size
 
-  prop1 : Property
-  prop1 = property $ do
+  definition : Property
+  definition = property $ do
     xs <- forAll genKVs
     DMap.size (DMap.fromList xs) === cast {from = Nat, to = Int} (length (nub xs @{keyWise}))
+
+  propDelete : Property
+  propDelete = property $ do
+    [MkSome k, dmap] <- forAll $ np [genSomeK, genDMap]
+
+    classify "k present"     (isJust    $ lookup k dmap)
+    classify "k not present" (isNothing $ lookup k dmap)
+
+    case lookup k dmap of
+      Nothing => size dmap === size (delete k dmap)
+      Just _  => size dmap === size (delete k dmap) + 1
+
+  propInsert : Property
+  propInsert = property $ do
+    [k :=> v, dmap] <- forAll $ np [genKV, genDMap]
+
+    classify "k present"     (isJust    $ lookup k dmap)
+    classify "k not present" (isNothing $ lookup k dmap)
+
+    case lookup k dmap of
+      Nothing => size (insert k v dmap) === size dmap + 1
+      Just _  => size (insert k v dmap) === size dmap
 
 namespace Union
 
