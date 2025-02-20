@@ -495,7 +495,7 @@ insertR kx x = go
         go Tip = singleton kx x
         go (Bin sz ky y l r) = case dcompare kx ky @{impl} of
             DLT => let l' = go l
-                   -- ponter equality used before on trees
+                   -- pointer equality used before on trees
                    in if size l' == size l
                       then Bin sz ky y l' r
                       else balance ky y l' r
@@ -504,7 +504,7 @@ insertR kx x = go
                    in if size r' == size r
                    then Bin sz ky y l r'
                    else balance ky y l r'
-            DEQ => Bin sz kx x l r
+            DEQ => Bin sz ky y l r
 
 ||| *O(log n)*. Insert with a function, combining key, new value and old value.
 ||| `'insertWithKey' f key value mp`
