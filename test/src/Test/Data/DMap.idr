@@ -5,11 +5,7 @@ import Data.Singleton
 import Data.Vect
 import Derive.Prelude
 
---import Tester
---import Tester.Runner
-
 import Data.DMap as TheDMap
---import Data.DMapGen
 import Data.DSum
 import Data.DEq
 import Data.DOrd
@@ -268,9 +264,6 @@ namespace FromList
     $ [ describe "`fromList` is insensitive to order of lists with unique keys" orderInsensitive
       , describe "test precedence of list elements"                             precedence
       ]
-  --export
-  --tests : List Test
-  --tests = [fromEmpty, fromSingleton, fromAllPairs]
 
 namespace Eq
   reflexive : Property
@@ -316,16 +309,6 @@ namespace Eq
       , describe "maps with different elemetns are not equal" differentElems
       ]
 
-  --export
-  --tests : List Test
-  --tests
-  --  = [ reflexiveEmpty
-  --    , reflexiveNonEmpty
-  --    , reversedEqualsItself
-  --    , emptyNonEmpty
-  --    , differentElems
-  --    ]
-
 namespace Lookup
 
   lookupExistent : Property
@@ -352,15 +335,6 @@ namespace Lookup
     $ [ describe "lookup of an existent key is successful"      lookupExistent
       , describe "lookup of a non-existent key is unsuccessful" lookupNonExistent
       ]
-
-  --export
-  --tests : List Test
-  --tests
-  --  = [ lookupSingle
-  --    , lookupIn9Elems
-  --    , lookupEmpty
-  --    , lookupNonExistent
-  --    ]
 
 namespace Insert
 
@@ -410,38 +384,6 @@ namespace Insert
       , describe "inserting a pair the second time is uneffectful"                 insertTheSamPairTwice
       ]
 
-  -- should be covered by `insert2`
-  --insertTheSameKeyTwice : Property
-  --insertTheSameKeyTwice
-  --  -- = test "insert 2 pairs with the same key"
-  --  = property $ do
-  --    [n, dmap]   <- forAll $ np [genParam, genDMap]
-  --    [k, v1, v2] <- forAll $ np [genK n, genV n, genV n]
-  --
-  --    lookup k (insert k v2 . insert k v1 $ dmap) === Just v2
-
-
-  {-
-  insertAllPairs : Test
-  insertAllPairs
-    = test "insert multiple pairs"
-    $ let
-      dmap : DMap K V
-      dmap = foldr (\(k :=> v) => insert k v) empty allPairs
-    in assertAllElems allPairs dmap
-  -}
-
-  --export
-  --tests : List Test
-  --tests
-  --  = [ insert1
-  --    , insert2Different
-  --    , insert2Same
-  --    , insertTheSamPairTwice
-  --    , insertTheSameKeyTwice
-  --    , insertAllPairs
-  --    ]
-
 namespace Delete
 
   delete1 : Property
@@ -477,14 +419,6 @@ namespace Delete
       , describe "deletion of a non-existent element is uneffectful" deleteNonExistent
       , describe "test deletion of an existing key"                  deleteExistent
       ]
-
-  --export
-  --tests : List Test
-  --tests
-  --  = [ delete1
-  --    , deleteFromEmpty
-  --    , deleteNonExistent
-  --    ]
 
 namespace Empty
   emptyToList : Property
@@ -689,30 +623,6 @@ namespace Union
       , describe "union is commutative"              commutative
       ]
 
-{-
-  -- TODO assuming disjoint
-  unionOfDisjointMaps : Test
-  unionOfDisjointMaps
-    = test "union of disjoint maps"
-    $ let
-      l1 = take 3 allPairs
-      l2 = drop 3 allPairs
-      in assertAllElems allPairs (fromList l1 `union` fromList l2)
-
-  -- TODO assuming overlapping
-  unionOfOverlappingMaps : Test
-  unionOfOverlappingMaps
-    = test "union of overlapping maps"
-    $ let
-      l1 = take 6 allPairs
-      l2 = drop 3 allPairs
-      in assertAllElems allPairs (fromList l1 `union` fromList l2)
-
-  --export
-  --tests : List Test
-  --tests = [unionOfDisjointMaps, unionOfOverlappingMaps]
--}
-
 namespace Difference
 
   definition : Property
@@ -753,42 +663,6 @@ namespace Difference
       , describe "x `difference` empty == x"                  identity
       , describe "empty `difference` x == empty (domination)" domination
       ]
-
-{-
-  submap : Test
-  submap
-    = test "subtract a submap"
-    $ let
-      dmap    = fromList allPairs
-      subdmap = fromList (take 3 allPairs)
-      in assertAllElems (drop 3 allPairs) (difference dmap subdmap)
-
-  overlapping : Test
-  overlapping
-    = test "subtract an overlapping map"
-    $ let
-      dmap        = fromList (drop 3 allPairs)
-      overlapping = fromList (take 6 allPairs)
-      in assertAllElems (drop 6 allPairs) (difference dmap overlapping)
-
-  disjoint : Test
-  disjoint
-    = test "subtract a disjoint map"
-    $ let
-      elems    = drop 6 allPairs
-      dmap     = fromList elems
-      disjoint = fromList (take 3 allPairs)
-      in assertAllElems elems (difference dmap disjoint)
-
-
-  --export
-  --tests : List Test
-  --tests
-  --  = [ submap
-  --    , overlapping
-  --    , disjoint
-  --    ]
--}
 
 namespace Intersection
 
@@ -843,47 +717,6 @@ namespace Intersection
       , describe "intersection is associative"                   associative
       , describe "intersection is commutative"                   commutative
       ]
-
-{-
-  submap : Test
-  submap
-    = test "intersection of a map with its submap"
-    $ let
-      elems = take 3 allPairs
-      dmap    = fromList allPairs
-      subdmap = fromList elems
-      in assertAllElems elems (intersection dmap subdmap)
-
-  overlapping : Test
-  overlapping
-    = test "intersection of overlapping maps"
-    $ let
-      dmap1 = fromList (take 6 allPairs)
-      dmap2 = fromList (drop 3 allPairs)
-      in assertAllElems (drop 3 $ take 6 allPairs) (intersection dmap1 dmap2)
-
-  disjoint : Test
-  disjoint
-    = test "intersection of disjoint maps"
-    $ let
-      dmap1 = fromList (take 3 allPairs)
-      dmap2 = fromList (drop 6 allPairs)
-      in assertAllElems [] (intersection dmap1 dmap2)
-
-  --export
-  --tests : List Test
-  --tests
-  --  = [ submap
-  --    , overlapping
-  --    , disjoint
-  --    ]
--}
-
--- union a b = (a `difference` b) `union` (a `intersection` b) `union` (b `difference` a)
--- a === (a `difference` b) `union` (a `intersection` b)
--- a `difference` (a `difference`   b) === (a `intersection` b)
--- a `difference` (a `intersection` b) === (a `difference`   b)
--- a `difference` (a `intersection` b) `difference` (a `difference` b) === empty
 
 namespace UnionDifferenceIntersection
 
@@ -962,28 +795,6 @@ namespace UnionDifferenceIntersection
       , describe "absorption 1"   absorption1
       , describe "absorption 2"   absorption2
       ]
-
-{-
-allTests : List Test
---allTests
---   = FromList.tests
---  ++ Eq.tests
---  ++ Insert.tests
---  ++ Lookup.tests
---  ++ Delete.tests
---  ++ Union.tests
---  ++ Difference.tests
---  ++ Intersection.tests
-
-export
-main : IO ()
-main = do
-  putStrLn "Testing `Data.DMap`"
-  True <- runTests allTests
-        | False => assert_total (idris_crash "tests failed")
-  pure ()
-
--}
 
 export
 main : IO ()
