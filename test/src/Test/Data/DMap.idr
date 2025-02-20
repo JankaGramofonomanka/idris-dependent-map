@@ -1,11 +1,10 @@
 module Test.Data.DMap
 
 import Data.List
-import Data.Singleton
 import Data.Vect
 import Derive.Prelude
 
-import Data.DMap as TheDMap
+import Data.DMap
 import Data.DSum
 import Data.DEq
 import Data.DOrd
@@ -23,6 +22,7 @@ import Hedgehog
 describe : PropertyName -> Property -> (PropertyName, Property)
 describe n p = (n, p)
 
+-- key and value definitions + interface implementations ----------------------
 data K : Nat -> Type where
   MkK : String -> (n : Nat) -> K n
 
@@ -30,9 +30,6 @@ data K : Nat -> Type where
 
 V : Nat -> Type
 V n = Vect n Char
-
-param : DSum K V -> Nat
-param (MkK _ n :=> _) = n
 
 unsafeDEQ : DOrdering a b
 unsafeDEQ = believe_me $ the (DOrdering 0 0) DEQ
@@ -70,9 +67,7 @@ implementation [keyWise] Eq (DSum K V) where
 implementation [paramWise] Eq (DSum K V) where
   (MkK _ n :=> _) == (MkK _ n' :=> _) = n == n'
 
---nubKeyWise : List (DSum K V) -> List (DSum K V)
---nubKeyWise kvs = nub kvs @{keyWise}
-
+-- List utils -----------------------------------------------------------------
 ||| remove all occurances of an element
 deleteAll : Eq a => a -> List a -> List a
 deleteAll _ []      = []
@@ -83,9 +78,12 @@ export infix 7 \\\
 (\\\) : Eq a => List a -> List a -> List a
 (\\\) = foldl (flip deleteAll)
 
-
 -- TODO this is inefficient
-shuffle : List Nat -> List a -> List a
+||| Shuffle elements of a list
+||| Do it by slicing it in a middle and swapping the sublists multiple times
+||| @ ns the indices (moduleo length of the list) at which the list will be sliced
+||| @ xs the shuffeled list
+shuffle : (ns : List Nat) -> (xs : List a) -> List a
 shuffle ns Nil = Nil
 shuffle ns xs = go (length xs) ns xs where
   go : Nat -> List Nat -> List a -> List a
@@ -98,22 +96,36 @@ shuffle ns xs = go (length xs) ns xs where
 sortVect : Ord a => Vect n a -> Vect n a
 sortVect xs = believe_me (sort {a} (believe_me xs))
 
-slice1 : Nat -> List a -> (List a, List a)
+||| Slice a list once
+||| n the index at which the list will be sliced
+||| l the list to be sliced
+slice1 : (n : Nat) -> (l : List a) -> (List a, List a)
 slice1 n l = let n' = n `mod` length l in (take n' l, drop n' l)
 
+||| Slice a list into multiple sublists
+||| @ ns the indices (moduleo length of the list) at which the list will be sliced
 slice : Vect n Nat -> List a -> Vect (S n) (List a)
 slice ns Nil = [] :: map (const []) ns
 slice ns l = go 0 (massage ns) l where
 
+  ||| Massage the numbers, so that they make sense
   massage : Vect k Nat -> Vect k Nat
   massage = sortVect . map (`mod` length l)
-  --massage Vect
+
   go : Nat -> Vect m Nat -> List a -> Vect (S m) (List a)
   go prevN Nil l = [l]
   go prevN (n :: ns) l = let
     (pre, post) = slice1 (n `minus` prevN) l
+    -- we can slice the right sublist, because `n :: ns` is sorted
     in pre :: go n ns post
 
+-- Property utils -------------------------------------------------------------
+||| Compare elements of maps
+||| Used to compare maps without using the `Eq` implementation
+sameElems : DMap K V -> DMap K V -> PropertyT ()
+sameElems dmap dmap' = toList dmap === toList dmap'
+
+-- Generators -----------------------------------------------------------------
 defaultRange : Range Nat
 defaultRange = linear 0 100
 
@@ -139,86 +151,82 @@ genKV = do
   n <- genParam
   (:=>) <$> genK n <*> genV n
 
+||| Generate list of key-value pairs
 genKVs : Gen (List (DSum K V))
 genKVs = list defaultRange genKV
 
---genKVsUnique : Eq (DSum K V) => Gen (List (DSum K V))
---genKVsUnique = nub <$> genKVs
+||| Generate unique key-value pairs according to a given `Eq` implementation
+genKVsUnique : Eq (DSum K V) => Gen (List (DSum K V))
+genKVsUnique = nub <$> genKVs
 
+||| Generate a list of key-value pairs, where each key is unique
 genKVsUniqueKeys : Gen (List (DSum K V))
-genKVsUniqueKeys = nub @{keyWise} <$> genKVs
---genKVsUniqueKeys = genKVsUnique @{keyWise}
+genKVsUniqueKeys = genKVsUnique @{keyWise}
 
+||| Generate a list of unique key-value pairs
 genKVsUniquePairs : Gen (List (DSum K V))
-genKVsUniquePairs = nub <$> genKVs
---genKVsUniquePairs = genKVsUnique
+genKVsUniquePairs = genKVsUnique
 
+||| Generate a non-empty list of key-value pairs
 genKVsNonEmpty : Gen (List (DSum K V))
 genKVsNonEmpty = toList <$> list1 defaultRange genKV
 
+||| Generate a non-empty list of key-value pairs that are unique according to a
+||| given `Eq` implementation
 genKVsUniqueNonEmpty : (impl : Eq (DSum K V)) => Gen (List1 (DSum K V))
 genKVsUniqueNonEmpty = do
   kv ::: kvs <- list1 defaultRange genKV
   let kvs' = (nub kvs @{impl} \\ [kv]) @{impl}
   pure (kv ::: kvs')
 
+||| Generate a non-empty list of key-value pairs, where each key is unique
 genKVsUniqueKeysNonEmpty : Gen (List1 (DSum K V))
 genKVsUniqueKeysNonEmpty = genKVsUniqueNonEmpty @{keyWise}
 
+||| Generate a non-empty list of unique key-value pairs
 genKVsUniquePairsNonEmpty : Gen (List1 (DSum K V))
 genKVsUniquePairsNonEmpty = genKVsUniqueNonEmpty
 
+||| Generate a list of key-value pairs and slice it into a given number of sublists
+||| @ n the number of sublists
 genKVsDisjoint : (n : Nat) -> Gen (List (DSum K V)) -> Gen (Vect n (List (DSum K V)))
 genKVsDisjoint Z gen = pure []
 genKVsDisjoint (S n) gen = do
   [kvs, ns] <- np [gen, vect n genNat]
   pure (slice ns kvs)
 
--- disjoint in the key comparison sense
+||| Generate a given number of lists of key-value pairs, disjoint key-wise
 genKVsConsistentDisjoint : (n : Nat) -> Gen (Vect n (List (DSum K V)))
 genKVsConsistentDisjoint n = genKVsDisjoint n genKVsUniqueKeys
 
--- when a key is in both lists, the value is the same
+||| Generate two lists of key-value pairs that are potentially overlapping, but
+||| consistent, that is, when a key is in both lists, the value paired with it
+||| is the same
 genKVsConsistentOverlapping : Gen (Vect 2 (List (DSum K V)))
 genKVsConsistentOverlapping = do
   [common, kvs1, kvs2] <- genKVsConsistentDisjoint 3
   pure [common ++ kvs1, common ++ kvs2]
 
+-- TODO this should be in `Data.DMap`
 theGenDMap : DOrd k => Hedgehog.Range Nat -> Gen (DSum k v) -> Gen (DMap k v)
 theGenDMap range gen = fromList <$> list range gen
 
+||| Generate a dependent map
 genDMap : Gen (DMap K V)
 genDMap = theGenDMap defaultRange genKV
 
+||| Generate two maps that are overlapping, but consistent,
+||| that is, when a key is in both maps, the value paired with it is the same
 -- when a key is in both maps, the value is the same
 genDMapsConsistent : Gen (Vect 2 (DMap K V))
 genDMapsConsistent = map fromList <$> genKVsConsistentOverlapping
 
 -- disjoint in the key comparison sense
+||| Generate a given number of disjoint maps
 genDMapsConsistentDisjoint : (n : Nat) -> Gen (Vect n (DMap K V))
 genDMapsConsistentDisjoint n = map fromList <$> genKVsConsistentDisjoint n
 
-elemOf : Eq a => Show a => a -> List a -> PropertyT ()
-elemOf x xs = diff x elem xs
-
---||| Assert that the elements of the list are exactly the elements of the map
---||| @ elems the list
---||| @ dmap  the map
---assertAllElems : (elems : List (DSum K V)) -> (dmap : DMap K V) -> PropertyT ()
---assertAllElems elems dmap = sort elems === sort (toList dmap)
-
-assertElem : (elem : DSum K V) -> (dmap : DMap K V) -> PropertyT ()
-assertElem (k :=> v) dmap = lookup k dmap === Just v
-
-assertElem' : (elem : DSum K V) -> (dmap : DMap K V) -> PropertyT ()
-assertElem' kv dmap = kv `elemOf` toList dmap
-
-assertNotElem : (k : K n) -> (dmap : DMap K V) -> PropertyT ()
-assertNotElem k dmap = lookup k dmap === Nothing
-
-sameElems : DMap K V -> DMap K V -> PropertyT ()
-sameElems dmap dmap' = toList dmap === toList dmap'
-
+-- Tests ----------------------------------------------------------------------
 namespace ToListFromList
 
   -- This should pretty much ensure that both `toList` and `fromList` work correctly.
@@ -676,7 +684,7 @@ namespace Intersection
     n <- forAll genParam
     [k, v1, v2, dmap1, dmap2] <- forAll $ np [genK n, genV n, genV n, genDMap, genDMap]
 
-    assertElem (k :=> v1) (insert k v1 dmap1 `intersection` insert k v2 dmap2)
+    lookup k (insert k v1 dmap1 `intersection` insert k v2 dmap2) === Just v1
 
   intersectionWithSubmap : Property
   intersectionWithSubmap = property $ do
