@@ -622,14 +622,11 @@ namespace Size
 
 namespace Union
 
-  -- TODO fails, likely due to `union` precedence bug
   definition : Property
   definition = property $ do
     [kvs1, kvs2] <- forAll $ np [genKVs, genKVs]
     (fromList kvs2 `union` fromList kvs1) === fromList (kvs1 ++ kvs2)
 
-  -- TODO this fails, even if I change `v1` to `v2` in the assertion,
-  -- so there must be inconsistency in precedence
   precedence : Property
   precedence = property $ do
     n <- forAll genParam
@@ -668,7 +665,6 @@ namespace Union
     dmap <- forAll genDMap
     (dmap `union` dmap) === dmap
 
-  -- TODO fails, probably for the same reason as `precedence`
   associative : Property
   associative = property $ do
     [a, b, c] <- forAll $ np [genDMap, genDMap, genDMap]
@@ -683,14 +679,13 @@ namespace Union
   unionProps : Group
   unionProps
     = MkGroup "`union` properties"
-    $ [ {-describe "test against the definition"       definition
+    $ [ describe "test against the definition"       definition
       , describe "test precedence"                   precedence
-      , -}
-        describe "union with submap is the supermap" unionWithSubmap
+      , describe "union with submap is the supermap" unionWithSubmap
       , describe "test union of overlapping maps"    unionWithOverlapping
       , describe "x `union` empty == x"              identity
       , describe "union is idempotent"               idempotent
-      --, describe "union is associative"              associative
+      , describe "union is associative"              associative
       , describe "union is commutative"              commutative
       ]
 
@@ -910,12 +905,10 @@ namespace UnionDifferenceIntersection
     [a, b] <- forAll $ np [genDMap, genDMap]
     ((a `difference` b) `union` (a `intersection` b)) === a
 
-  -- TODO fails, likely due to `union` precedence bug
   prop5 = property $ do
     [a, b] <- forAll $ np [genDMap, genDMap]
     (a `union` (b `difference` a)) === (a `union` b)
 
-  -- TODO fails, likely due to `union` precedence bug
   prop6 = property $ do
     [a, b] <- forAll $ np [genDMap, genDMap]
     let lhs = union a b
@@ -936,12 +929,11 @@ namespace UnionDifferenceIntersection
       , describe "property 2" prop2
       , describe "property 3" prop3
       , describe "property 4" prop4
-      --, describe "property 5" prop5
-      --, describe "property 6" prop6
+      , describe "property 5" prop5
+      , describe "property 6" prop6
       , describe "property 7" prop7
       ]
 
-  -- TODO `distributive1` fails, likely due to `union` precedence bug
   -- laws from wikipedia
   distributive1, distributive2 : Property
   distributive1 = property $ do
@@ -965,9 +957,8 @@ namespace UnionDifferenceIntersection
   wikipediaLaws : Group
   wikipediaLaws
     = MkGroup "Laws I found on wikipedia"
-    $ [ {-describe "distributive 1" distributive1
-      , -}
-        describe "distributive 2" distributive2
+    $ [ describe "distributive 1" distributive1
+      , describe "distributive 2" distributive2
       , describe "absorption 1"   absorption1
       , describe "absorption 2"   absorption2
       ]
