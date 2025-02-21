@@ -220,11 +220,9 @@ genDMap = theGenDMap defaultRange genKV
 
 ||| Generate two maps that are overlapping, but consistent,
 ||| that is, when a key is in both maps, the value paired with it is the same
--- when a key is in both maps, the value is the same
 genDMapsConsistent : Gen (Vect 2 (DMap K V))
 genDMapsConsistent = map fromList <$> genKVsConsistentOverlapping
 
--- disjoint in the key comparison sense
 ||| Generate a given number of disjoint maps
 genDMapsConsistentDisjoint : (n : Nat) -> Gen (Vect n (DMap K V))
 genDMapsConsistentDisjoint n = map fromList <$> genKVsConsistentDisjoint n
@@ -267,8 +265,8 @@ namespace FromList
 
       -- TODO is this overengineered?
       let lhs, rhs : DMap K V
-          lhs = DMap.fromList $ kvs1 ++ [k :=> v1] ++ kvs2 ++ [k :=> v2] ++ kvs3 --[k :=> v1, k :=> v2]
-          rhs = DMap.fromList $ kvs1               ++ kvs2 ++ [k :=> v2] ++ kvs3 --[k :=> v2]
+          lhs = DMap.fromList $ kvs1 ++ [k :=> v1] ++ kvs2 ++ [k :=> v2] ++ kvs3
+          rhs = DMap.fromList $ kvs1               ++ kvs2 ++ [k :=> v2] ++ kvs3
 
       lhs `sameElems` rhs
 
@@ -301,18 +299,13 @@ namespace Eq
     $ do
         [nn, kvs, kvs'] <- forAll $ np [genNat, toList <$> genKVsUniquePairsNonEmpty, genKVs]
 
+        -- build maps to comapre, make sure they are not identical
         let n = nn `mod` length kvs
             common = (kvs' \\\ kvs) @{keyWise}
             lhs = DMap.fromList (take n kvs ++ common)
             rhs = DMap.fromList (drop n kvs ++ common)
-        --[common, kvs1, kvs2] <- forAll $ genKVsDisjoint3 genKVsUniquePairs
-        --let lhs = DMap.fromList (common ++ kvs1)
-        --    rhs = DMap.fromList (common ++ kvs2)
-
         classify "no elements are the same" $ common == []
-        --classify "(invalid) n > length kvs" $ n > length kvs
         classify "(invalid) lhs == rhs"     $ kvs    == []
-        --classify "(invalid) lhs == rhs"     $ kvs1   == kvs2
 
         lhs /== rhs
 
@@ -617,12 +610,6 @@ namespace Union
   unionWithOverlapping
     = describe "test union of overlapping maps"
     $ do
-      --[k1 :=> v1, k2 :=> v2, dmap] <- forAll $ np [genKV, genKV, genDMap]
-      --(insert k1 v1 dmap `union` insert k2 v2 dmap) === (insert k1 v1 . insert k2 v2 $ dmap)
-      --[kvs, kvs', kvs''] <- forAll $ np [genKVs, genKVs, genKVs]
-      --(fromList (kvs ++ kvs'') `union` fromList (kvs ++ kvs')) === fromList (kvs ++ kvs' ++ kvs'')
-      --[kvs, n1, n2] <- forAll $ np [genKVsUniqueKeys, genNat, genNat]
-      --let [common, kvs1, kvs2] = slice [n1, n2] kvs
       [common, kvs1, kvs2] <- forAll (genKVsConsistentDisjoint 3)
       let lhs = fromList (common ++ kvs2) `union` fromList (common ++ kvs1)
           rhs = fromList (common ++ kvs1 ++ kvs2)
