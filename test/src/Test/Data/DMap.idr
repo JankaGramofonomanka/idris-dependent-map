@@ -898,5 +898,5 @@ spec = checkGroup toListFromListProps
   &&*> checkGroup unionProps
   &&*> checkGroup differenceProps
   &&*> checkGroup intersectionProps
-  &&*> checkGroup lawsICameUpWith
+  --&&*> checkGroup lawsICameUpWith -- Disabled to decrease memory usage during compilation
   &&*> checkGroup wikipediaLaws
